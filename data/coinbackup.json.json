@@ -1,0 +1,88 @@
+{
+    "kontynenty": {
+        "Afryka": {
+            "panstwa": {
+                "Libia": {
+                    "monety": [
+                        "1 dinar 2017"
+                    ]
+                },
+                "Egipt": {
+                    "monety": [
+                        "1funt 2007"
+                    ]
+                },
+                "kenia": {
+                    "monety": [
+                        "1 szyling 1971"
+                    ]
+                }
+            }
+        },
+        "Europa": {
+            "panstwa": {
+                "Czeczenia": {
+                    "monety": [
+                        "1 rubel 2915"
+                    ]
+                },
+                "Rumunia": {
+                    "monety": [
+                        "1 lej 1993"
+                    ]
+                },
+                "Polska": {
+                    "monety": [
+                        "1z\u0142oty 2024"
+                    ]
+                },
+                "Ukraina": {
+                    "monety": [
+                        "1hrywna 2001"
+                    ]
+                },
+                "Bo\u015bnia i Hercegowina": {
+                    "monety": [
+                        "1marka 2017"
+                    ]
+                }
+            }
+        },
+        "azja": {
+            "panstwa": {
+                "Japonia": {
+                    "monety": [
+                        "1 jen1988"
+                    ]
+                }
+            }
+        },
+        "ameryka P\u00f3lnocna": {
+            "panstwa": {
+                "USA": {
+                    "monety": [
+                        "1 dollar 2000"
+                    ]
+                }
+            }
+        },
+        "Ameryka Po\u0142udniowa": {
+            "panstwa": {
+                "Brazylia": {
+                    "monety": [
+                        "1real 2023"
+                    ]
+                }
+            }
+        },
+        "Australia i Oceania": {
+            "panstwa": {
+                "Australia": {
+                    "monety": [
+                        "1 dollar 1984"
+                    ]
+                }
+            }
+        }
+    }
+}

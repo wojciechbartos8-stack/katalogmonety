@@ -1,0 +1,15 @@
+CREATE DATABASE IF NOT EXISTS katalogmonet; USE katalogmonet;
+
+– Tabela kontynenty CREATE TABLE kontynenty ( id INT AUTO_INCREMENT
+PRIMARY KEY, nazwa VARCHAR(100) NOT NULL ) ENGINE=InnoDB;
+
+– Tabela panstwo CREATE TABLE panstwo ( id INT AUTO_INCREMENT PRIMARY
+KEY, nazwa VARCHAR(150) NOT NULL, kontynent_id INT NOT NULL, FOREIGN KEY
+(kontynent_id) REFERENCES kontynenty(id) ON UPDATE CASCADE ON DELETE
+RESTRICT ) ENGINE=InnoDB;
+
+– Tabela coin CREATE TABLE coin ( id INT AUTO_INCREMENT PRIMARY KEY,
+panstwo_id INT NOT NULL, nominal VARCHAR(50), rok INT, tematyka
+VARCHAR(255), typ_monety VARCHAR(150), uwagi TEXT, FOREIGN KEY
+(panstwo_id) REFERENCES panstwo(id) ON UPDATE CASCADE ON DELETE RESTRICT
+) ENGINE=InnoDB;
