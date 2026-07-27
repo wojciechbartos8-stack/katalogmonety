@@ -1,165 +1,282 @@
 <?php
-session_start();
+require_once "db_connect.php";
 
-$host = "localhost";
-$user = "root";
-$password = "mysql";
-$database = "katalogmonety";
+$id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
 
-$conn = new mysqli($host, $user, $password, $database);
 
-if ($conn->connect_error) {
-    die("Błąd połączenia z bazą: " . $conn->connect_error);
+// pobranie państwa
+$panstwo = mysqli_query($conn, "SELECT * FROM panstwo WHERE id=$id");
+
+if(mysqli_num_rows($panstwo)==0){
+    die("Nie znaleziono państwa");
 }
 
-$conn->set_charset("utf8");
+$p = mysqli_fetch_assoc($panstwo);
 
-// POBRANIE PAŃSTW (POPRAWIONE)
-$panstwa = $conn->query("
-    SELECT *
-    FROM panstwo
-    ORDER BY nazwa_panstwa ASC
-");
+
+// pobranie monet
+$monety = mysqli_query(
+    $conn,
+    "SELECT * FROM coin 
+     WHERE id_panstwo=$id 
+     ORDER BY rok_bicia DESC"
+);
+
 ?>
 
 <!DOCTYPE html>
 <html lang="pl">
+
 <head>
+
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Państwa - Katalog Monet</title>
+
+<title>
+<?= htmlspecialchars($p['nazwa_panstwa']) ?>
+</title>
+
 
 <style>
 
 body{
+    font-family:Arial;
+    background:#f2f2f2;
     margin:0;
-    font-family:Arial, sans-serif;
-    background:#f4f4f4;
 }
+
 
 header{
-    background:#8B4513;
-    color:white;
-    text-align:center;
-    padding:40px;
-}
 
-nav{
-    background:#654321;
+    background:#222;
+    color:white;
     padding:15px;
     text-align:center;
+
 }
 
-nav a{
-    color:white;
-    text-decoration:none;
-    margin:0 15px;
-    font-weight:bold;
+
+h1{
+
+    text-align:center;
+    margin:25px;
+
 }
 
-nav a:hover{
-    color:gold;
-}
 
-.container{
-    width:90%;
-    max-width:1200px;
-    margin:30px auto;
-}
 
 .box{
+
+    width:80%;
+    margin:20px auto;
     background:white;
     padding:20px;
     border-radius:10px;
-    margin-bottom:20px;
+    box-shadow:0 2px 8px rgba(0,0,0,.2);
+
 }
 
-.card{
-    background:#fafafa;
-    border:1px solid #ddd;
-    border-radius:8px;
-    padding:15px;
-    margin-bottom:10px;
-}
 
-footer{
-    background:#8B4513;
-    color:white;
-    text-align:center;
+
+.coin{
+
+    width:80%;
+    margin:15px auto;
+    background:white;
     padding:20px;
-    margin-top:30px;
+    border-radius:10px;
+    box-shadow:0 2px 6px rgba(0,0,0,.15);
+
 }
+
+
+
+.field{
+
+    padding:5px;
+    border-bottom:1px solid #eee;
+
+}
+
+
+
+h2{
+
+    color:#333;
+
+}
+
+
+.back{
+
+    display:block;
+    width:150px;
+    margin:20px auto;
+    padding:10px;
+    text-align:center;
+    background:#1e88e5;
+    color:white;
+    text-decoration:none;
+    border-radius:6px;
+
+}
+
 
 </style>
+
+
 </head>
+
 
 <body>
 
+
 <header>
-    <h1>Państwa</h1>
-    <p>Lista państw w katalogu monet</p>
+
+<h2>
+?? Katalog Monet Świata
+</h2>
+
 </header>
 
-<nav>
 
-    <a href="index.php">Strona główna</a>
-    <a href="coin.php">Monety</a>
-    <a href="panstwo.php">Państwa</a>
-    <a href="epoki.php">Epoki</a>
-    <a href="kontakt.php">Kontakt</a>
 
-    <?php if(isset($_SESSION['login'])): ?>
+<h1>
 
-        <?php if(isset($_SESSION['rola']) && $_SESSION['rola'] == 'admin'): ?>
-            <a href="panel_admin.php">Panel admina</a>
-        <?php else: ?>
-            <a href="user_panel.php">Panel użytkownika</a>
-        <?php endif; ?>
+??? <?= htmlspecialchars($p['nazwa_panstwa']) ?>
 
-        <a href="wyloguj.php">Wyloguj</a>
+</h1>
 
-    <?php else: ?>
 
-        <a href="logowanie.php">Zaloguj</a>
-        <a href="rejestracja.php">Zarejestruj się</a>
 
-    <?php endif; ?>
+<!-- HISTORIA PAŃSTWA -->
 
-</nav>
+<div class="box">
 
-<div class="container">
 
-    <div class="box">
-        <h2>Lista państw</h2>
+<h2>
+?? Historia państwa
+</h2>
 
-        <?php
-        if($panstwa && $panstwa->num_rows > 0){
 
-            while($row = $panstwa->fetch_assoc()){
+<?php
 
-                echo "<div class='card'>";
+if(isset($p['historia']) && $p['historia']!=""){
 
-                echo "<h3>" . htmlspecialchars($row['nazwa_panstwa']) . "</h3>";
+    echo nl2br(htmlspecialchars($p['historia']));
 
-                echo "</div>";
-            }
+}
+else{
 
-        } else {
-            echo "<p>Brak państw w bazie danych.</p>";
-        }
-        ?>
+    echo "Brak opisu historii państwa.";
 
-    </div>
+}
+
+?>
+
 
 </div>
 
-<footer>
-    Katalog Monet &copy; <?php echo date("Y"); ?>
-</footer>
 
-</body>
-</html>
+
+
+
+<h1>
+?? Monety
+</h1>
+
+
 
 <?php
-$conn->close();
+
+while($row=mysqli_fetch_assoc($monety))
+
+{
+
+
 ?>
+
+
+
+<div class="coin">
+
+
+<h2>
+?? Moneta ID: <?= $row['id'] ?>
+</h2>
+
+
+
+<?php
+
+
+foreach($row as $key=>$value)
+
+{
+
+
+// pomijamy techniczne pola
+
+if(
+$key=="id" ||
+$key=="id_panstwo"
+)
+
+continue;
+
+
+
+// nazwa pola bardziej czytelna
+
+$nazwa = ucwords(
+str_replace("_"," ",$key)
+);
+
+
+
+echo "
+
+<div class='field'>
+
+<b>
+$nazwa:
+</b>
+<br>
+
+".nl2br(htmlspecialchars($value))."
+
+</div>
+
+";
+
+
+}
+
+
+
+?>
+
+
+
+</div>
+
+
+
+<?php
+
+}
+
+
+
+?>
+
+
+
+<a class="back" href="kontynenty.php">
+? Powrót
+</a>
+
+
+
+</body>
+
+</html>

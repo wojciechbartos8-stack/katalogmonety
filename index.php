@@ -1,188 +1,118 @@
-<?php
-session_start();
-
-$host = "localhost";
-$user = "root";
-$password = "mysql"; // Zmień jeśli używasz innego hasła w AMPPS
-$database = "katalogmonety";
-
-$conn = new mysqli($host, $user, $password, $database);
-
-if ($conn->connect_error) {
-    die("Błąd połączenia z bazą: " . $conn->connect_error);
-}
-
-$conn->set_charset("utf8");
-
-// Pobranie 10 najnowszych monet
-$sql = "
-    SELECT c.*, p.nazwa_panstwa
-    FROM coin c
-    LEFT JOIN panstwo p ON c.id_panstwo = p.id
-    ORDER BY c.id DESC
-    LIMIT 10
-";
-
-$monety = $conn->query($sql);
-?>
-
 <!DOCTYPE html>
 <html lang="pl">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Katalog Monet</title>
+<meta charset="UTF-8">
+<title>Katalog Monet</title>
 
-    <style>
-        body {
-            margin: 0;
-            font-family: Arial, sans-serif;
-            background: #f4f4f4;
-        }
+<style>
+body{
+    margin:0;
+    font-family:Arial;
+    height:100vh;
+    overflow:hidden;
 
-        header {
-            background: #8B4513;
-            color: white;
-            text-align: center;
-            padding: 40px;
-        }
+    /* ?? TAPETA Z MONETAMI */
+    background-image: url('https://images.unsplash.com/photo-1605902711622-cfb43c4437d3?auto=format&fit=crop&w=1600&q=80');
+    background-size: cover;
+    background-position: center;
+}
 
-        nav {
-            background: #654321;
-            padding: 15px;
-            text-align: center;
-        }
+/* ?? ciemna nakładka */
+.overlay{
+    position:fixed;
+    top:0;left:0;
+    width:100%;
+    height:100%;
+    background:rgba(0,0,0,0.55);
+}
 
-        nav a {
-            color: white;
-            text-decoration: none;
-            margin: 0 12px;
-            font-weight: bold;
-        }
+/* ?? GÓRNY SIDEBAR */
+.topbar{
+    position:fixed;
+    top:0;
+    left:0;
+    width:100%;
+    background:rgba(0,0,0,0.75);
+    display:flex;
+    justify-content:center;
+    gap:20px;
+    padding:12px;
+    z-index:10;
+}
 
-        nav a:hover {
-            color: gold;
-        }
+.topbar a{
+    color:white;
+    text-decoration:none;
+    padding:8px 14px;
+    background:#1e88e5;
+    border-radius:6px;
+    transition:0.2s;
+}
 
-        .container {
-            width: 90%;
-            max-width: 1200px;
-            margin: 30px auto;
-        }
+.topbar a:hover{
+    background:#42a5f5;
+    transform:scale(1.05);
+}
 
-        .box {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
+/* ?? CENTRALNY NAPIS */
+.center{
+    position:relative;
+    z-index:2;
+    height:100%;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    flex-direction:column;
+    color:white;
+    text-align:center;
+}
 
-        .card {
-            background: #fafafa;
-            border: 1px solid #ddd;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-radius: 8px;
-        }
+.center h1{
+    font-size:45px;
+    text-shadow:0 2px 10px black;
+}
 
-        footer {
-            background: #8B4513;
-            color: white;
-            text-align: center;
-            padding: 20px;
-            margin-top: 30px;
-        }
-    </style>
+/* ?? DOLNY SIDEBAR */
+.bottombar{
+    position:fixed;
+    bottom:0;
+    left:0;
+    width:100%;
+    background:rgba(0,0,0,0.75);
+    color:#ddd;
+    text-align:center;
+    padding:8px;
+    font-size:14px;
+}
+</style>
+
 </head>
+
 <body>
 
-<header>
-    <h1>Katalog Monet</h1>
-    <p>Internetowy katalog monet świata</p>
-</header>
+<div class="overlay"></div>
 
-<nav>
-    <a href="index.php">Strona główna</a>
-    <a href="coin.php">Monety</a>
-    <a href="panstwo.php">Państwa</a>
-    <a href="kontynenty.php">Kontynenty</a>
-    <a href="epoka.php">Epoki</a>
-    <a href="contact.php">Kontakt</a>
-
-    <?php if (isset($_SESSION['login'])): ?>
-
-        <?php if (isset($_SESSION['rola']) && $_SESSION['rola'] === 'admin'): ?>
-            <a href="admin_panel.php">Panel admina</a>
-        <?php else: ?>
-            <a href="user_panel.php">Panel użytkownika</a>
-        <?php endif; ?>
-
-        <a href="logout.php">Wyloguj</a>
-
-    <?php else: ?>
-
-        <a href="login.php">Zaloguj</a>
-        <a href="register.php">Zarejestruj się</a>
-
-    <?php endif; ?>
-</nav>
-
-<div class="container">
-
-    <div class="box">
-        <h2>Witaj w Katalogu Monet</h2>
-
-        <p>
-            Serwis umożliwia przeglądanie monet z różnych państw świata.
-            Możesz przeglądać monety według państw, kontynentów oraz epok historycznych.
-        </p>
-    </div>
-
-    <div class="box">
-
-        <h2>Najnowsze monety</h2>
-
-        <?php
-        if ($monety && $monety->num_rows > 0) {
-
-            while ($row = $monety->fetch_assoc()) {
-
-                echo "<div class='card'>";
-
-                echo "<h3>" . htmlspecialchars($row['waluta']) . "</h3>";
-
-                echo "<p><strong>Państwo:</strong> "
-                    . htmlspecialchars($row['nazwa_panstwa'] ?? 'Brak danych')
-                    . "</p>";
-
-                echo "<p><strong>Nominał:</strong> "
-                    . htmlspecialchars($row['nominał'])
-                    . "</p>";
-
-                echo "<p><strong>Rok bicia:</strong> "
-                    . htmlspecialchars($row['rok_bicia'])
-                    . "</p>";
-
-                echo "</div>";
-            }
-
-        } else {
-
-            echo "<p>Brak monet w bazie danych.</p>";
-        }
-        ?>
-
-    </div>
-
+<!-- ?? MENU -->
+<div class="topbar">
+    <a href="login.php">?? Logowanie</a>
+    <a href="register.php">?? Rejestracja</a>
+    <a href="kontynenty.php">?? Katalog</a>
 </div>
 
-<footer>
-    Katalog Monet &copy; <?php echo date("Y"); ?>
-</footer>
+<!-- ?? TREŚĆ -->
+<div class="center">
+    <h1>?? Katalog Monet Świata</h1>
+    <p>Kolekcja monet z różnych epok i krajów</p>
+</div>
+
+<!-- ?? STOPKA Z ROKIEM -->
+<div class="bottombar">
+    © <span id="year"></span> Katalog Monet | Wszystkie prawa zastrzeżone
+</div>
+
+<script>
+document.getElementById("year").innerText = new Date().getFullYear();
+</script>
 
 </body>
 </html>
-
-<?php
-$conn->close();
-?>

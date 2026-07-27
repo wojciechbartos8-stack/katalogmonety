@@ -1,40 +1,29 @@
 <?php
 session_start();
-require_once 'db_connect.php';
+require_once "db_connect.php";
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if($_SERVER['REQUEST_METHOD'] == "POST"){
 
-    $login = $_POST['login'] ?? '';
-    $haslo = $_POST['haslo'] ?? '';
+    $login = $_POST['login'];
+    $pass  = $_POST['password'];
 
-    // pobranie usera
-    $stmt = $conn->prepare("SELECT login, password, rola FROM users WHERE login = ?");
-    $stmt->bind_param("s", $login);
-    $stmt->execute();
-    $result = $stmt->get_result();
+    $res = mysqli_query($conn,"SELECT * FROM users WHERE login='$login'");
+    $user = mysqli_fetch_assoc($res);
 
-    if ($result && $user = $result->fetch_assoc()) {
+    if($user && $pass == $user['password']){
 
-        // sprawdzenie hasła
-        if ($user['password'] === $haslo) {
+        $_SESSION['user'] = $user['login'];
+        $_SESSION['role'] = $user['role'];
 
-            $_SESSION['login'] = $user['login'];
-            $_SESSION['rola'] = $user['rola'];
-
-            // 🔥 PRZEKIEROWANIE PO ROLI
-            if ($user['rola'] === 'admin') {
-                header("Location: admin_panel.php");
-            } else {
-                header("Location: user_panel.php");
-            }
-            exit;
-
+        if($user['role'] == "admin"){
+            header("Location: admin_panel.php");
         } else {
-            $error = "Nieprawidłowy login lub hasło";
+            header("Location: user_panel.php");
         }
+        exit;
 
     } else {
-        $error = "Nieprawidłowy login lub hasło";
+        $error = "Błędne dane";
     }
 }
 ?>
@@ -44,22 +33,39 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <head>
 <meta charset="UTF-8">
 <title>Logowanie</title>
+
+<style>
+body{font-family:Arial;background:#f4f4f4;}
+.box{
+    width:300px;
+    margin:80px auto;
+    background:white;
+    padding:20px;
+    border-radius:10px;
+}
+input,button{
+    width:100%;
+    padding:10px;
+    margin:5px 0;
+}
+</style>
 </head>
+
 <body>
 
-<h2>Logowanie</h2>
+<div class="box">
 
-<?php if(isset($error)) echo "<p style='color:red;'>$error</p>"; ?>
+<h2>?? Logowanie</h2>
+
+<?php if(isset($error)) echo "<p style='color:red'>$error</p>"; ?>
 
 <form method="post">
-    <label>Login:</label><br>
-    <input type="text" name="login" required><br><br>
-
-    <label>Hasło:</label><br>
-    <input type="password" name="haslo" required><br><br>
-
-    <button type="submit">Zaloguj</button>
+<input name="login" placeholder="Login">
+<input name="password" type="password" placeholder="Hasło">
+<button>Zaloguj</button>
 </form>
+
+</div>
 
 </body>
 </html>

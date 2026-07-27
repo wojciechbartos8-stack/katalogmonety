@@ -1,14 +1,12 @@
 <?php
 $host = "localhost";
-$dbname = "katalogmonety";
 $user = "root";
-$password = "mysql"; // jeśli u Ciebie AMPPS ma inne hasło, zmień tutaj
+$pass = "mysql"; // albo "" jeśli u Ciebie działa
+$db   = "katalogmonety";
 
-$conn = new mysqli($host, $user, $password, $dbname);
+$conn = mysqli_connect($host, $user, $pass, $db);
 
-if ($conn->connect_error) {
-    die("Błąd połączenia z bazą katalogmonety: " . $conn->connect_error);
+if(!$conn){
+    die("Błąd DB: " . mysqli_connect_error());
 }
-
-$conn->set_charset("utf8");
 ?>

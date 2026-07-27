@@ -1,122 +1,109 @@
 <?php
-session_start();
+require_once "db_connect.php";
 
-$host = "localhost";
-$user = "root";
-$password = "mysql";
-$database = "katalogmonety";
+// kontynenty
+$kontynenty = mysqli_query($conn, "SELECT * FROM kontynenty ORDER BY nazwa_kontynentu ASC");
 
-$conn = new mysqli($host, $user, $password, $database);
+// państwa (wszystkie na raz, żeby nie robić zapytań w pętli)
+$panstwa = mysqli_query($conn, "SELECT * FROM panstwo ORDER BY nazwa_panstwa ASC");
 
-if ($conn->connect_error) {
-    die("Błąd połączenia: " . $conn->connect_error);
+$panstwa_tab = [];
+while ($p = mysqli_fetch_assoc($panstwa)) {
+    $panstwa_tab[$p['id_kontynent']][] = $p;
 }
-
-$conn->set_charset("utf8");
-
-// POBRANIE KONTYNENTÓW
-$kontynenty = $conn->query("
-    SELECT *
-    FROM kontynenty
-    ORDER BY nazwa_kontynentu ASC
-");
 ?>
 
 <!DOCTYPE html>
 <html lang="pl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kontynenty - Katalog Monet</title>
+<title>Katalog Monet - Kontynenty</title>
 
 <style>
-
 body{
-    margin:0;
-    font-family:Arial;
+    font-family: Arial;
     background:#f4f4f4;
 }
 
-header{
-    background:#8B4513;
-    color:white;
-    text-align:center;
-    padding:30px;
-}
-
-nav{
-    background:#654321;
-    padding:15px;
-    text-align:center;
-}
-
-nav a{
-    color:white;
-    text-decoration:none;
-    margin:0 10px;
-    font-weight:bold;
-}
-
-nav a:hover{
-    color:gold;
-}
-
-.container{
-    width:90%;
-    max-width:1200px;
-    margin:30px auto;
-}
-
-.card{
+.kontynent{
+    margin:15px auto;
+    width:80%;
     background:white;
-    padding:15px;
-    margin-bottom:15px;
     border-radius:8px;
-    border:1px solid #ddd;
+    overflow:hidden;
+    box-shadow:0 2px 6px rgba(0,0,0,0.1);
 }
 
-</style>
-</head>
+.header{
+    padding:15px;
+    background:#1e88e5;
+    color:white;
+    font-size:20px;
+    cursor:pointer;
+    user-select:none;
+}
 
+.panstwa{
+    display:none;
+    padding:10px;
+    background:#fafafa;
+}
+
+.panstwa a{
+    display:block;
+    padding:10px;
+    text-decoration:none;
+    color:#333;
+    border-bottom:1px solid #ddd;
+}
+
+.panstwa a:hover{
+    background:#e3f2fd;
+}
+</style>
+
+</head>
 <body>
 
-<header>
-    <h1>Kontynenty</h1>
-</header>
+<h1 style="text-align:center;">?? Katalog Monet</h1>
 
-<nav>
-    <a href="index.php">Strona główna</a>
-    <a href="coin.php">Monety</a>
-    <a href="panstwo.php">Państwa</a>
-    <a href="kontynenty.php">Kontynenty</a>
-    <a href="epoki.php">Epoki</a>
-    <a href="kontakt.php">Kontakt</a>
-</nav>
+<?php while($k = mysqli_fetch_assoc($kontynenty)) { ?>
 
-<div class="container">
+<div class="kontynent">
 
-<h2>Lista kontynentów</h2>
+    <div class="header" onclick="toggle(<?= $k['id'] ?>)">
+        ? <?= $k['nazwa_kontynentu'] ?>
+    </div>
 
-<?php
-if($kontynenty && $kontynenty->num_rows > 0){
+    <div class="panstwa" id="kont<?= $k['id'] ?>">
 
-    while($row = $kontynenty->fetch_assoc()){
+        <?php
+        if(isset($panstwa_tab[$k['id']])) {
+            foreach($panstwa_tab[$k['id']] as $p) {
+                echo '<a href="panstwo.php?id='.$p['id'].'">'.$p['nazwa_panstwa'].'</a>';
+            }
+        } else {
+            echo "<p>Brak państw</p>";
+        }
+        ?>
 
-        echo "<div class='card'>";
-        echo "<h3>" . htmlspecialchars($row['nazwa_kontynentu']) . "</h3>";
-        echo "</div>";
-    }
-
-} else {
-    echo "<p>Brak kontynentów w bazie.</p>";
-}
-?>
+    </div>
 
 </div>
 
+<?php } ?>
+
+<script>
+function toggle(id){
+    let el = document.getElementById("kont"+id);
+
+    if(el.style.display === "block"){
+        el.style.display = "none";
+    } else {
+        el.style.display = "block";
+    }
+}
+</script>
+
 </body>
 </html>
-
-<?php
-$conn->close();
-?>
