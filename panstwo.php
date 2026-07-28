@@ -1,282 +1,412 @@
 <?php
+
 require_once "db_connect.php";
 
-$id = isset($_GET['id']) ? (int)$_GET['id'] : 0;
+$id = isset($_GET["id"]) ? (int) $_GET["id"] : 0;
 
-
-// pobranie państwa
-$panstwo = mysqli_query($conn, "SELECT * FROM panstwo WHERE id=$id");
-
-if(mysqli_num_rows($panstwo)==0){
-    die("Nie znaleziono państwa");
+if ($id <= 0) {
+    die("Nieprawidłowy identyfikator państwa.");
 }
 
-$p = mysqli_fetch_assoc($panstwo);
+/* =========================================
+   POBRANIE PAŃSTWA
+========================================= */
 
-
-// pobranie monet
-$monety = mysqli_query(
+$stmtPanstwo = mysqli_prepare(
     $conn,
-    "SELECT * FROM coin 
-     WHERE id_panstwo=$id 
+    "SELECT id, nazwa_panstwa, historia
+     FROM panstwo
+     WHERE id = ?"
+);
+
+mysqli_stmt_bind_param($stmtPanstwo, "i", $id);
+mysqli_stmt_execute($stmtPanstwo);
+
+$wynikPanstwo = mysqli_stmt_get_result($stmtPanstwo);
+
+if (mysqli_num_rows($wynikPanstwo) === 0) {
+    die("Nie znaleziono państwa.");
+}
+
+$p = mysqli_fetch_assoc($wynikPanstwo);
+
+/* =========================================
+   POBRANIE MONET PAŃSTWA
+========================================= */
+
+$stmtMonety = mysqli_prepare(
+    $conn,
+    "SELECT *
+     FROM coin
+     WHERE id_panstwo = ?
      ORDER BY rok_bicia DESC"
 );
 
-?>
+mysqli_stmt_bind_param($stmtMonety, "i", $id);
+mysqli_stmt_execute($stmtMonety);
 
+$monety = mysqli_stmt_get_result($stmtMonety);
+
+?>
 <!DOCTYPE html>
 <html lang="pl">
 
 <head>
 
-<meta charset="UTF-8">
+    <meta charset="UTF-8">
 
-<title>
-<?= htmlspecialchars($p['nazwa_panstwa']) ?>
-</title>
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
+    <title>
+        <?= htmlspecialchars($p["nazwa_panstwa"], ENT_QUOTES, "UTF-8") ?>
+        – Katalog Monet Świata
+    </title>
 
-<style>
+    <meta
+        name="description"
+        content="Historia państwa <?= htmlspecialchars($p["nazwa_panstwa"], ENT_QUOTES, "UTF-8") ?> oraz katalog pochodzących z niego monet."
+    >
 
-body{
-    font-family:Arial;
-    background:#f2f2f2;
-    margin:0;
-}
+    <style>
 
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
 
-header{
+        body {
+            margin: 0;
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f2f4f7;
+            color: #222222;
+            line-height: 1.6;
+        }
 
-    background:#222;
-    color:white;
-    padding:15px;
-    text-align:center;
+        header {
+            padding: 18px 20px;
+            color: #ffffff;
+            text-align: center;
+            background: linear-gradient(135deg, #17243d, #244f79);
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
+        }
 
-}
+        header h2 {
+            margin: 0;
+            color: #ffffff;
+            font-size: clamp(1.35rem, 4vw, 2rem);
+        }
 
+        main {
+            width: min(1100px, calc(100% - 30px));
+            margin: 0 auto;
+            padding: 25px 0 45px;
+        }
 
-h1{
+        .page-title {
+            margin: 10px 0 25px;
+            color: #1d3557;
+            font-size: clamp(2rem, 6vw, 3rem);
+            text-align: center;
+        }
 
-    text-align:center;
-    margin:25px;
+        .section-title {
+            margin: 0 0 18px;
+            color: #244f79;
+            font-size: clamp(1.4rem, 4vw, 2rem);
+        }
 
-}
+        .box {
+            width: 100%;
+            margin: 0 auto 35px;
+            padding: 25px;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 3px 14px rgba(0, 0, 0, 0.12);
+        }
 
+        .history {
+            font-size: 1.05rem;
+            overflow-wrap: anywhere;
+        }
 
+        .history p {
+            margin-top: 0;
+        }
 
-.box{
+        .empty-message {
+            padding: 15px;
+            color: #666666;
+            font-style: italic;
+            background: #f7f7f7;
+            border-left: 4px solid #b0b0b0;
+            border-radius: 5px;
+        }
 
-    width:80%;
-    margin:20px auto;
-    background:white;
-    padding:20px;
-    border-radius:10px;
-    box-shadow:0 2px 8px rgba(0,0,0,.2);
+        .coins-title {
+            margin: 40px 0 25px;
+            color: #1d3557;
+            text-align: center;
+            font-size: clamp(1.7rem, 5vw, 2.4rem);
+        }
 
-}
+        .coins-list {
+            display: grid;
+            grid-template-columns: repeat(
+                auto-fit,
+                minmax(min(100%, 360px), 1fr)
+            );
+            gap: 22px;
+        }
 
+        .coin {
+            padding: 22px;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 3px 12px rgba(0, 0, 0, 0.12);
+        }
 
+        .coin h3 {
+            margin: 0 0 18px;
+            color: #244f79;
+            font-size: 1.35rem;
+        }
 
-.coin{
+        .field {
+            padding: 10px 0;
+            border-bottom: 1px solid #eeeeee;
+            overflow-wrap: anywhere;
+        }
 
-    width:80%;
-    margin:15px auto;
-    background:white;
-    padding:20px;
-    border-radius:10px;
-    box-shadow:0 2px 6px rgba(0,0,0,.15);
+        .field:last-child {
+            border-bottom: none;
+        }
 
-}
+        .field-name {
+            display: block;
+            margin-bottom: 4px;
+            color: #444444;
+            font-weight: 700;
+        }
 
+        .field-value {
+            color: #222222;
+        }
 
+        .back {
+            display: block;
+            width: fit-content;
+            min-width: 170px;
+            margin: 35px auto 0;
+            padding: 12px 22px;
+            color: #ffffff;
+            font-weight: 700;
+            text-align: center;
+            text-decoration: none;
+            background: #1e88e5;
+            border-radius: 7px;
+            transition:
+                background-color 0.2s ease,
+                transform 0.2s ease;
+        }
 
-.field{
+        .back:hover {
+            background: #1565c0;
+            transform: translateY(-2px);
+        }
 
-    padding:5px;
-    border-bottom:1px solid #eee;
+        .back:focus-visible {
+            outline: 3px solid #ffca28;
+            outline-offset: 3px;
+        }
 
-}
+        @media (max-width: 600px) {
 
+            main {
+                width: min(100% - 20px, 1100px);
+                padding-top: 18px;
+            }
 
+            .box,
+            .coin {
+                padding: 18px;
+                border-radius: 9px;
+            }
 
-h2{
+            .page-title {
+                margin-bottom: 18px;
+            }
 
-    color:#333;
+            .coins-list {
+                grid-template-columns: 1fr;
+            }
 
-}
+            .back {
+                width: 100%;
+            }
+        }
 
-
-.back{
-
-    display:block;
-    width:150px;
-    margin:20px auto;
-    padding:10px;
-    text-align:center;
-    background:#1e88e5;
-    color:white;
-    text-decoration:none;
-    border-radius:6px;
-
-}
-
-
-</style>
-
+    </style>
 
 </head>
 
-
 <body>
 
-
 <header>
-
-<h2>
-?? Katalog Monet Świata
-</h2>
-
+    <h2>?? Katalog Monet Świata</h2>
 </header>
 
+<main>
 
+    <h1 class="page-title">
+        ?? <?= htmlspecialchars(
+            $p["nazwa_panstwa"],
+            ENT_QUOTES,
+            "UTF-8"
+        ) ?>
+    </h1>
 
-<h1>
+    <!-- HISTORIA PAŃSTWA -->
 
-??? <?= htmlspecialchars($p['nazwa_panstwa']) ?>
+    <section class="box" aria-labelledby="historia-title">
 
-</h1>
+        <h2 class="section-title" id="historia-title">
+            ?? Historia państwa
+        </h2>
 
+        <div class="history">
 
+            <?php if (!empty(trim($p["historia"] ?? ""))): ?>
 
-<!-- HISTORIA PAŃSTWA -->
+                <?= nl2br(
+                    htmlspecialchars(
+                        $p["historia"],
+                        ENT_QUOTES,
+                        "UTF-8"
+                    )
+                ) ?>
 
-<div class="box">
+            <?php else: ?>
 
+                <p class="empty-message">
+                    Brak opisu historii tego państwa.
+                </p>
 
-<h2>
-?? Historia państwa
-</h2>
+            <?php endif; ?>
 
+        </div>
 
-<?php
+    </section>
 
-if(isset($p['historia']) && $p['historia']!=""){
+    <!-- MONETY -->
 
-    echo nl2br(htmlspecialchars($p['historia']));
+    <section aria-labelledby="monety-title">
 
-}
-else{
+        <h2 class="coins-title" id="monety-title">
+            ?? Monety
+        </h2>
 
-    echo "Brak opisu historii państwa.";
+        <?php if (mysqli_num_rows($monety) > 0): ?>
 
-}
+            <div class="coins-list">
 
-?>
+                <?php while ($row = mysqli_fetch_assoc($monety)): ?>
 
+                    <article class="coin">
 
-</div>
+                        <h3>
+                            ?? Moneta ID:
+                            <?= (int) $row["id"] ?>
+                        </h3>
 
+                        <?php foreach ($row as $key => $value): ?>
 
+                            <?php
 
+                            if (
+                                $key === "id" ||
+                                $key === "id_panstwo"
+                            ) {
+                                continue;
+                            }
 
+                            $nazwaPola = ucwords(
+                                str_replace("_", " ", $key)
+                            );
 
-<h1>
-?? Monety
-</h1>
+                            ?>
 
+                            <div class="field">
 
+                                <span class="field-name">
+                                    <?= htmlspecialchars(
+                                        $nazwaPola,
+                                        ENT_QUOTES,
+                                        "UTF-8"
+                                    ) ?>:
+                                </span>
 
-<?php
+                                <div class="field-value">
 
-while($row=mysqli_fetch_assoc($monety))
+                                    <?php if (
+                                        $value !== null &&
+                                        trim((string) $value) !== ""
+                                    ): ?>
 
-{
+                                        <?= nl2br(
+                                            htmlspecialchars(
+                                                (string) $value,
+                                                ENT_QUOTES,
+                                                "UTF-8"
+                                            )
+                                        ) ?>
 
+                                    <?php else: ?>
 
-?>
+                                        Brak danych
 
+                                    <?php endif; ?>
 
+                                </div>
 
-<div class="coin">
+                            </div>
 
+                        <?php endforeach; ?>
 
-<h2>
-?? Moneta ID: <?= $row['id'] ?>
-</h2>
+                    </article>
 
+                <?php endwhile; ?>
 
+            </div>
 
-<?php
+        <?php else: ?>
 
+            <div class="box">
+                <p class="empty-message">
+                    Nie dodano jeszcze monet dla tego państwa.
+                </p>
+            </div>
 
-foreach($row as $key=>$value)
+        <?php endif; ?>
 
-{
+    </section>
 
+    <a class="back" href="kontynenty.php">
+        ‹ Powrót do katalogu
+    </a>
 
-// pomijamy techniczne pola
-
-if(
-$key=="id" ||
-$key=="id_panstwo"
-)
-
-continue;
-
-
-
-// nazwa pola bardziej czytelna
-
-$nazwa = ucwords(
-str_replace("_"," ",$key)
-);
-
-
-
-echo "
-
-<div class='field'>
-
-<b>
-$nazwa:
-</b>
-<br>
-
-".nl2br(htmlspecialchars($value))."
-
-</div>
-
-";
-
-
-}
-
-
-
-?>
-
-
-
-</div>
-
-
-
-<?php
-
-}
-
-
-
-?>
-
-
-
-<a class="back" href="kontynenty.php">
-? Powrót
-</a>
-
-
+</main>
 
 </body>
-
 </html>
+
+<?php
+
+mysqli_stmt_close($stmtPanstwo);
+mysqli_stmt_close($stmtMonety);
+mysqli_close($conn);
+
+?>
