@@ -1,434 +1,289 @@
 <?php
+declare(strict_types=1);
 
 session_start();
 
-/*
-Zarówno administrator, jak i zwyk³y zalogowany u¿ytkownik
-mog¹ dodawaæ monety.
-*/
-
-if (!isset($_SESSION["user"])) {
-    header("Location: index.php");
+if (!isset($_SESSION['user'])) {
+    header('Location: index.php');
     exit;
 }
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-require_once "db_connect.php";
+try {
+    $conn = new mysqli(
+        'localhost',
+        'root',
+        'mysql',
+        'katalogmonety'
+    );
 
-mysqli_set_charset($conn, "utf8mb4");
+    $conn->set_charset('utf8mb4');
+} catch (mysqli_sql_exception $e) {
+    die('Nie udaÅ‚o siÄ™ poÅ‚Ä…czyÄ‡ z bazÄ… danych.');
+}
 
-/* =========================================
-   FUNKCJA BEZPIECZNEGO WYŒWIETLANIA
-========================================= */
-
-function h($value): string
+function h(mixed $tekst): string
 {
     return htmlspecialchars(
-        (string) $value,
+        (string)($tekst ?? ''),
         ENT_QUOTES,
-        "UTF-8"
+        'UTF-8'
     );
 }
 
-/* =========================================
-   PANEL POWROTNY
-========================================= */
+function komunikatBleduUploadu(int $kod): string
+{
+    return match ($kod) {
+        UPLOAD_ERR_INI_SIZE =>
+            'ZdjÄ™cie przekracza limit serwera.',
 
-$isAdmin = (
-    isset($_SESSION["role"]) &&
-    $_SESSION["role"] === "admin"
-);
+        UPLOAD_ERR_FORM_SIZE =>
+            'ZdjÄ™cie jest za duÅ¼e.',
 
-$panelPowrotny = $isAdmin
-    ? "admin_panel.php"
-    : "user_panel.php";
+        UPLOAD_ERR_PARTIAL =>
+            'ZdjÄ™cie zostaÅ‚o przesÅ‚ane tylko czÄ™Å›ciowo.',
 
-/* =========================================
-   TOKEN ZABEZPIECZAJ¥CY FORMULARZ
-========================================= */
+        UPLOAD_ERR_NO_TMP_DIR =>
+            'Brakuje katalogu tymczasowego.',
 
-if (empty($_SESSION["csrf_token"])) {
-    $_SESSION["csrf_token"] = bin2hex(
-        random_bytes(32)
-    );
+        UPLOAD_ERR_CANT_WRITE =>
+            'Serwer nie moÅ¼e zapisaÄ‡ zdjÄ™cia.',
+
+        UPLOAD_ERR_EXTENSION =>
+            'PrzesyÅ‚anie zostaÅ‚o zatrzymane przez serwer.',
+
+        default =>
+            'WystÄ…piÅ‚ bÅ‚Ä…d podczas przesyÅ‚ania zdjÄ™cia.'
+    };
 }
 
-$blad = "";
+$blad = '';
+$sukces = '';
 
-/* =========================================
-   OBS£UGA FORMULARZA
-========================================= */
+$idPanstwo = '';
+$waluta = '';
+$walutaObiegowa = '';
+$walutaKolekcjonerska = '';
+$nominal = '';
+$rokBicia = '';
+$historiaWaluty = '';
+$historiaJednostkiMonetarnej = '';
 
-if ($_SERVER["REQUEST_METHOD"] === "POST") {
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
-    $csrfToken = $_POST["csrf_token"] ?? "";
+    $idPanstwo = trim($_POST['id_panstwo'] ?? '');
+    $waluta = trim($_POST['waluta'] ?? '');
+    $walutaObiegowa = trim($_POST['waluta_obiegowa'] ?? '');
+    $walutaKolekcjonerska = trim(
+        $_POST['waluta_kolekcjonerska'] ?? ''
+    );
+    $nominal = trim($_POST['nominal'] ?? '');
+    $rokBicia = trim($_POST['rok_bicia'] ?? '');
+    $historiaWaluty = trim($_POST['historia_waluty'] ?? '');
+    $historiaJednostkiMonetarnej = trim(
+        $_POST['historia_jednostki_monetarnej'] ?? ''
+    );
+
+    $sciezkaZdjecia = '';
+    $pelnaSciezkaZdjecia = null;
 
     if (
-        !is_string($csrfToken) ||
-        !hash_equals(
-            $_SESSION["csrf_token"],
-            $csrfToken
-        )
+        $idPanstwo === '' ||
+        !ctype_digit($idPanstwo) ||
+        (int)$idPanstwo <= 0
     ) {
-        die("Nieprawid³owy token formularza.");
+        $blad = 'Podaj prawidÅ‚owe ID paÅ„stwa.';
+    } elseif ($waluta === '') {
+        $blad = 'Podaj nazwÄ™ waluty.';
+    } elseif ($walutaObiegowa === '') {
+        $blad = 'Podaj informacjÄ™ o walucie obiegowej.';
+    } elseif ($walutaKolekcjonerska === '') {
+        $blad = 'Podaj informacjÄ™ o walucie kolekcjonerskiej.';
+    } elseif ($nominal === '') {
+        $blad = 'Podaj nominaÅ‚ monety.';
+    } elseif (
+        $rokBicia === '' ||
+        !ctype_digit($rokBicia) ||
+        (int)$rokBicia < 1 ||
+        (int)$rokBicia > 2100
+    ) {
+        $blad = 'Podaj prawidÅ‚owy rok bicia.';
+    } elseif ($historiaWaluty === '') {
+        $blad = 'Podaj historiÄ™ waluty.';
+    } elseif ($historiaJednostkiMonetarnej === '') {
+        $blad = 'Podaj historiÄ™ jednostki monetarnej.';
     }
 
-    $idPanstwo = isset($_POST["id_panstwo"])
-        ? (int) $_POST["id_panstwo"]
-        : 0;
-
-    $waluta = trim(
-        $_POST["waluta"] ?? ""
-    );
-
-    $walutaObiegowa = trim(
-        $_POST["waluta_obiegowa"] ?? ""
-    );
-
-    $walutaKolekcjonerska = trim(
-        $_POST["waluta_kolekcjonerska"] ?? ""
-    );
-
-    $nominal = trim(
-        $_POST["nominal"] ?? ""
-    );
-
-    $rokBiciaTekst = trim(
-        $_POST["rok_bicia"] ?? ""
-    );
-
-    $historiaWaluty = trim(
-        $_POST["historia_waluty"] ?? ""
-    );
-
-    $historiaJednostkiMonetarnej = trim(
-        $_POST["historia_jednostki_monetarnej"] ?? ""
-    );
-
-    /* =========================================
-       WALIDACJA PÓL
-    ========================================= */
-
-    if ($idPanstwo <= 0) {
-
-        $blad = "Wybierz pañstwo.";
-
-    } elseif ($waluta === "") {
-
-        $blad = "Nazwa waluty jest wymagana.";
-
-    } elseif ($walutaObiegowa === "") {
-
-        $blad = "Informacja o walucie obiegowej jest wymagana.";
-
-    } elseif ($walutaKolekcjonerska === "") {
-
-        $blad = "Informacja o walucie kolekcjonerskiej jest wymagana.";
-
-    } elseif ($nominal === "") {
-
-        $blad = "Nomina³ jest wymagany.";
-
-    } elseif (
-        $rokBiciaTekst === "" ||
-        filter_var(
-            $rokBiciaTekst,
-            FILTER_VALIDATE_INT
-        ) === false
+    /*
+     * ZdjÄ™cie jest opcjonalne.
+     */
+    if (
+        $blad === '' &&
+        isset($_FILES['zdjecie']) &&
+        $_FILES['zdjecie']['error'] !== UPLOAD_ERR_NO_FILE
     ) {
+        $zdjecie = $_FILES['zdjecie'];
 
-        $blad = "Podaj prawid³owy rok bicia.";
-
-    } elseif ($historiaWaluty === "") {
-
-        $blad = "Historia waluty jest wymagana.";
-
-    } elseif ($historiaJednostkiMonetarnej === "") {
-
-        $blad = "Historia jednostki monetarnej jest wymagana.";
-
-    } else {
-
-        $rokBicia = (int) $rokBiciaTekst;
-
-        /* =========================================
-           SPRAWDZENIE PAÑSTWA
-        ========================================= */
-
-        $stmtPanstwo = mysqli_prepare(
-            $conn,
-            "SELECT id
-             FROM panstwo
-             WHERE id = ?
-             LIMIT 1"
-        );
-
-        mysqli_stmt_bind_param(
-            $stmtPanstwo,
-            "i",
-            $idPanstwo
-        );
-
-        mysqli_stmt_execute($stmtPanstwo);
-
-        $wynikPanstwo = mysqli_stmt_get_result(
-            $stmtPanstwo
-        );
-
-        if (mysqli_num_rows($wynikPanstwo) === 0) {
-
-            $blad = "Wybrane pañstwo nie istnieje.";
-
-            mysqli_stmt_close($stmtPanstwo);
-
+        if ($zdjecie['error'] !== UPLOAD_ERR_OK) {
+            $blad = komunikatBleduUploadu(
+                (int)$zdjecie['error']
+            );
+        } elseif ((int)$zdjecie['size'] > 5 * 1024 * 1024) {
+            $blad = 'ZdjÄ™cie moÅ¼e mieÄ‡ maksymalnie 5 MB.';
+        } elseif (!is_uploaded_file($zdjecie['tmp_name'])) {
+            $blad = 'PrzesÅ‚any plik jest nieprawidÅ‚owy.';
         } else {
+            $finfo = new finfo(FILEINFO_MIME_TYPE);
+            $typMime = $finfo->file($zdjecie['tmp_name']);
 
-            mysqli_stmt_close($stmtPanstwo);
+            $dozwoloneTypy = [
+                'image/jpeg' => 'jpg',
+                'image/png'  => 'png',
+                'image/webp' => 'webp'
+            ];
 
-            /* =========================================
-               OBS£UGA ZDJÊCIA
-            ========================================= */
-
-            $sciezkaZdjecia = "";
-            $pelnaSciezkaZdjecia = "";
-
-            if (
-                isset($_FILES["zdjecie"]) &&
-                $_FILES["zdjecie"]["error"]
-                    !== UPLOAD_ERR_NO_FILE
-            ) {
-
-                if (
-                    $_FILES["zdjecie"]["error"]
-                    !== UPLOAD_ERR_OK
-                ) {
-
-                    $blad =
-                        "Wyst¹pi³ b³¹d podczas przesy³ania zdjêcia.";
-
-                } elseif (
-                    $_FILES["zdjecie"]["size"]
-                    > 5 * 1024 * 1024
-                ) {
-
-                    $blad =
-                        "Zdjêcie mo¿e mieæ maksymalnie 5 MB.";
-
-                } else {
-
-                    $plikTymczasowy =
-                        $_FILES["zdjecie"]["tmp_name"];
-
-                    /*
-                    Sprawdzenie prawdziwego typu pliku,
-                    a nie tylko jego rozszerzenia.
-                    */
-
-                    $finfo = new finfo(
-                        FILEINFO_MIME_TYPE
-                    );
-
-                    $typMime = $finfo->file(
-                        $plikTymczasowy
-                    );
-
-                    $dozwoloneTypy = [
-                        "image/jpeg" => "jpg",
-                        "image/png" => "png",
-                        "image/webp" => "webp"
-                    ];
-
-                    if (
-                        !isset(
-                            $dozwoloneTypy[$typMime]
-                        )
-                    ) {
-
-                        $blad =
-                            "Dozwolone formaty zdjêcia: JPG, PNG i WEBP.";
-
-                    } else {
-
-                        $katalogWzgledny =
-                            "images/monety";
-
-                        $katalogDocelowy =
-                            __DIR__ .
-                            DIRECTORY_SEPARATOR .
-                            "images" .
-                            DIRECTORY_SEPARATOR .
-                            "monety";
-
-                        /*
-                        Utworzenie katalogu, je¿eli
-                        jeszcze nie istnieje.
-                        */
-
-                        if (
-                            !is_dir($katalogDocelowy) &&
-                            !mkdir(
-                                $katalogDocelowy,
-                                0775,
-                                true
-                            ) &&
-                            !is_dir($katalogDocelowy)
-                        ) {
-
-                            $blad =
-                                "Nie uda³o siê utworzyæ katalogu na zdjêcia.";
-
-                        } else {
-
-                            $rozszerzenie =
-                                $dozwoloneTypy[$typMime];
-
-                            /*
-                            Losowa nazwa zabezpiecza przed
-                            nadpisywaniem plików.
-                            */
-
-                            $nazwaPliku =
-                                "moneta_" .
-                                date("Ymd_His") .
-                                "_" .
-                                bin2hex(
-                                    random_bytes(5)
-                                ) .
-                                "." .
-                                $rozszerzenie;
-
-                            $pelnaSciezkaZdjecia =
-                                $katalogDocelowy .
-                                DIRECTORY_SEPARATOR .
-                                $nazwaPliku;
-
-                            /*
-                            Taka œcie¿ka zostanie zapisana
-                            w bazie danych.
-                            */
-
-                            $sciezkaZdjecia =
-                                $katalogWzgledny .
-                                "/" .
-                                $nazwaPliku;
-
-                            if (
-                                !move_uploaded_file(
-                                    $plikTymczasowy,
-                                    $pelnaSciezkaZdjecia
-                                )
-                            ) {
-
-                                $blad =
-                                    "Nie uda³o siê zapisaæ zdjêcia.";
-
-                                $sciezkaZdjecia = "";
-                                $pelnaSciezkaZdjecia = "";
-                            }
-                        }
-                    }
-                }
-            }
-
-            /* =========================================
-               DODAWANIE MONETY DO BAZY
-            ========================================= */
-
-            if ($blad === "") {
+            if (!isset($dozwoloneTypy[$typMime])) {
+                $blad = 'Dozwolone formaty: JPG, PNG oraz WEBP.';
+            } elseif (@getimagesize($zdjecie['tmp_name']) === false) {
+                $blad = 'Wybrany plik nie jest prawidÅ‚owym zdjÄ™ciem.';
+            } else {
+                $rozszerzenie = $dozwoloneTypy[$typMime];
 
                 try {
-
-                    $stmtInsert = mysqli_prepare(
-                        $conn,
-                        "INSERT INTO coin
-                        (
-                            id_panstwo,
-                            waluta,
-                            `waluta obiegowa`,
-                            `waluta kolekcjonerska`,
-                            nominal,
-                            rok_bicia,
-                            historia_waluty,
-                            `historia_jednostki _monetarnej`,
-                            zdjecie
-                        )
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
-                    );
-
-                    mysqli_stmt_bind_param(
-                        $stmtInsert,
-                        "issssisss",
-                        $idPanstwo,
-                        $waluta,
-                        $walutaObiegowa,
-                        $walutaKolekcjonerska,
-                        $nominal,
-                        $rokBicia,
-                        $historiaWaluty,
-                        $historiaJednostkiMonetarnej,
-                        $sciezkaZdjecia
-                    );
-
-                    mysqli_stmt_execute($stmtInsert);
-
-                    $noweIdMonety =
-                        mysqli_insert_id($conn);
-
-                    mysqli_stmt_close($stmtInsert);
-
-                    header(
-                        "Location: " .
-                        $panelPowrotny .
-                        "?dodano_monete=" .
-                        $noweIdMonety .
-                        "#monety"
-                    );
-
-                    exit;
-
+                    $losowyFragment = bin2hex(random_bytes(8));
                 } catch (Throwable $e) {
+                    $losowyFragment = str_replace(
+                        '.',
+                        '',
+                        uniqid('', true)
+                    );
+                }
 
-                    /*
-                    Je¿eli zapis do bazy siê nie uda,
-                    usuwamy wczeœniej przes³any plik.
-                    */
+                $nazwaPliku =
+                    'moneta-' .
+                    date('Ymd-His') .
+                    '-' .
+                    $losowyFragment .
+                    '.' .
+                    $rozszerzenie;
+
+                $katalogZdjec =
+                    __DIR__ .
+                    DIRECTORY_SEPARATOR .
+                    'images';
+
+                if (!is_dir($katalogZdjec)) {
+                    if (!mkdir($katalogZdjec, 0775, true)) {
+                        $blad = 'Nie udaÅ‚o siÄ™ utworzyÄ‡ katalogu images.';
+                    }
+                }
+
+                if (
+                    $blad === '' &&
+                    !is_writable($katalogZdjec)
+                ) {
+                    $blad = 'Katalog images nie ma uprawnieÅ„ do zapisu.';
+                }
+
+                if ($blad === '') {
+                    $pelnaSciezkaZdjecia =
+                        $katalogZdjec .
+                        DIRECTORY_SEPARATOR .
+                        $nazwaPliku;
 
                     if (
-                        $pelnaSciezkaZdjecia !== "" &&
-                        is_file($pelnaSciezkaZdjecia)
+                        !move_uploaded_file(
+                            $zdjecie['tmp_name'],
+                            $pelnaSciezkaZdjecia
+                        )
                     ) {
-                        unlink($pelnaSciezkaZdjecia);
+                        $blad = 'Nie udaÅ‚o siÄ™ zapisaÄ‡ zdjÄ™cia.';
+                    } else {
+                        $sciezkaZdjecia =
+                            'images/' .
+                            $nazwaPliku;
                     }
-
-                    throw $e;
                 }
             }
         }
     }
+
+    if ($blad === '') {
+        try {
+            $idPanstwoDoBazy = (int)$idPanstwo;
+            $rokBiciaDoBazy = (int)$rokBicia;
+
+            $stmt = $conn->prepare(
+                "INSERT INTO `coin`
+                (
+                    `id_panstwo`,
+                    `waluta`,
+                    `waluta obiegowa`,
+                    `waluta kolekcjonerska`,
+                    `nominal`,
+                    `rok_bicia`,
+                    `historia_waluty`,
+                    `historia_jednostki _monetarnej`,
+                    `zdjecie`
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            );
+
+            $stmt->bind_param(
+                'issssisss',
+                $idPanstwoDoBazy,
+                $waluta,
+                $walutaObiegowa,
+                $walutaKolekcjonerska,
+                $nominal,
+                $rokBiciaDoBazy,
+                $historiaWaluty,
+                $historiaJednostkiMonetarnej,
+                $sciezkaZdjecia
+            );
+
+            $stmt->execute();
+
+            $idNowejMonety = $stmt->insert_id;
+
+            $stmt->close();
+
+            $sukces =
+                'Moneta zostaÅ‚a dodana. ID rekordu: ' .
+                $idNowejMonety .
+                '.';
+
+            $idPanstwo = '';
+            $waluta = '';
+            $walutaObiegowa = '';
+            $walutaKolekcjonerska = '';
+            $nominal = '';
+            $rokBicia = '';
+            $historiaWaluty = '';
+            $historiaJednostkiMonetarnej = '';
+
+        } catch (mysqli_sql_exception $e) {
+
+            if (
+                $pelnaSciezkaZdjecia !== null &&
+                is_file($pelnaSciezkaZdjecia)
+            ) {
+                unlink($pelnaSciezkaZdjecia);
+            }
+
+            $blad =
+                'Nie udaÅ‚o siÄ™ zapisaÄ‡ monety. BÅ‚Ä…d SQL: ' .
+                $e->getMessage();
+        }
+    }
 }
-
-/* =========================================
-   POBRANIE LISTY PAÑSTW
-========================================= */
-
-$panstwaResult = mysqli_query(
-    $conn,
-    "SELECT id, nazwa_panstwa
-     FROM panstwo
-     ORDER BY nazwa_panstwa ASC"
-);
-
-$liczbaPanstw = mysqli_num_rows(
-    $panstwaResult
-);
-
 ?>
+
 <!DOCTYPE html>
 <html lang="pl">
 
 <head>
-
     <meta charset="UTF-8">
 
     <meta
@@ -436,392 +291,256 @@ $liczbaPanstw = mysqli_num_rows(
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>
-        Dodaj monetê – Katalog Monet Œwiata
-    </title>
-
-    <meta
-        name="robots"
-        content="noindex, nofollow"
-    >
+    <title>Dodaj monetÄ™</title>
 
     <style>
-
-        *,
-        *::before,
-        *::after {
+        * {
             box-sizing: border-box;
         }
 
-        html {
-            scroll-behavior: smooth;
-        }
-
         body {
+            margin: 0;
             min-height: 100vh;
-            margin: 0;
+            padding: 30px 15px;
             font-family: Arial, Helvetica, sans-serif;
-            color: #222222;
-            background: #eef2f6;
-            line-height: 1.6;
-        }
-
-        .site-header {
-            padding: 24px 20px;
-            color: #ffffff;
-            text-align: center;
-            background: linear-gradient(
-                135deg,
-                #17243d,
-                #244f79
-            );
-            box-shadow:
-                0 3px 12px
-                rgba(0, 0, 0, 0.18);
-        }
-
-        .site-header h1 {
-            margin: 0;
-            font-size: clamp(
-                1.8rem,
-                5vw,
-                2.7rem
-            );
-        }
-
-        .site-header p {
-            margin: 8px 0 0;
-            color: #dce8f3;
+            color: #263238;
+            background: #eef2f7;
         }
 
         .container {
-            width: min(
-                900px,
-                calc(100% - 30px)
-            );
+            width: 100%;
+            max-width: 850px;
+            margin: 0 auto;
+        }
 
-            margin: 35px auto;
+        .card {
             padding: 30px;
-
             background: #ffffff;
             border-radius: 14px;
-
-            box-shadow:
-                0 4px 18px
-                rgba(0, 0, 0, 0.12);
+            box-shadow: 0 8px 28px rgba(0, 0, 0, 0.1);
         }
 
-        .form-title {
+        h1 {
+            margin: 0 0 8px;
+            color: #1f3b73;
+            font-size: 30px;
+        }
+
+        .subtitle {
             margin: 0 0 28px;
-            color: #1d3557;
-            text-align: center;
-
-            font-size: clamp(
-                1.5rem,
-                4vw,
-                2.1rem
-            );
+            color: #607d8b;
+            line-height: 1.6;
         }
 
-        .form-grid {
-            display: grid;
+        .message {
+            margin-bottom: 22px;
+            padding: 14px 16px;
+            border-radius: 8px;
+            line-height: 1.5;
+        }
 
-            grid-template-columns:
-                repeat(
-                    2,
-                    minmax(0, 1fr)
-                );
+        .success {
+            color: #155724;
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+        }
 
-            gap: 20px;
+        .error {
+            color: #721c24;
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
         }
 
         .form-group {
             margin-bottom: 20px;
         }
 
-        .form-group.full {
-            grid-column: 1 / -1;
-        }
-
         label {
             display: block;
             margin-bottom: 7px;
-            color: #244f79;
             font-weight: 700;
         }
 
         input,
-        select,
-        textarea {
+        textarea,
+        select {
             width: 100%;
-            padding: 12px 13px;
-            font: inherit;
-            color: #222222;
+            padding: 12px 14px;
+            border: 1px solid #c7d0da;
+            border-radius: 8px;
             background: #ffffff;
-            border: 1px solid #bec7d0;
-            border-radius: 7px;
-        }
-
-        input[type="file"] {
-            padding: 10px;
-            background: #f8fafc;
+            font-family: inherit;
+            font-size: 16px;
         }
 
         input:focus,
-        select:focus,
-        textarea:focus {
-            outline:
-                3px solid
-                rgba(30, 136, 229, 0.2);
-
-            border-color: #1e88e5;
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: #1f6fbe;
+            box-shadow: 0 0 0 3px rgba(31, 111, 190, 0.15);
         }
 
         textarea {
-            min-height: 190px;
+            min-height: 130px;
             resize: vertical;
-            line-height: 1.6;
         }
 
-        .help-text {
+        input[type="file"] {
+            background: #f8fafc;
+        }
+
+        .required {
+            color: #c62828;
+        }
+
+        .help {
             display: block;
-            margin-top: 6px;
-            color: #68717a;
-            font-size: 0.9rem;
+            margin-top: 7px;
+            color: #607d8b;
+            font-size: 13px;
+            line-height: 1.5;
         }
 
-        .error {
-            margin-bottom: 24px;
-            padding: 14px 16px;
-            color: #721c24;
-            background: #f8d7da;
-            border: 1px solid #f1b0b7;
-            border-radius: 7px;
+        .preview {
+            display: none;
+            margin-top: 15px;
+            padding: 15px;
+            background: #f5f7fa;
+            border: 1px solid #dce3ea;
+            border-radius: 10px;
+            text-align: center;
         }
 
-        .warning {
-            margin-bottom: 24px;
-            padding: 14px 16px;
-            color: #664d03;
-            background: #fff3cd;
-            border: 1px solid #ffecb5;
-            border-radius: 7px;
+        .preview.visible {
+            display: block;
+        }
+
+        .preview img {
+            display: block;
+            width: auto;
+            max-width: 100%;
+            max-height: 350px;
+            margin: 0 auto;
+            border-radius: 8px;
+            object-fit: contain;
         }
 
         .buttons {
             display: flex;
             flex-wrap: wrap;
             gap: 12px;
-            margin-top: 10px;
+            margin-top: 28px;
         }
 
-        button,
-        .back-button {
-            display: inline-flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 48px;
-            padding: 12px 21px;
-            font: inherit;
-            font-weight: 700;
-            border: none;
-            border-radius: 7px;
-        }
-
+        .button,
         button {
+            display: inline-flex;
+            min-height: 46px;
+            align-items: center;
+            justify-content: center;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
             color: #ffffff;
-            background: #2e7d32;
+            background: #1f6fbe;
+            font-family: inherit;
+            font-size: 16px;
+            font-weight: 700;
+            text-decoration: none;
             cursor: pointer;
         }
 
+        .button:hover,
         button:hover {
-            background: #1b5e20;
+            background: #155a9c;
         }
 
-        button:disabled {
-            color: #dddddd;
-            background: #888888;
-            cursor: not-allowed;
+        .button-secondary {
+            background: #546e7a;
         }
 
-        .back-button {
-            color: #ffffff;
-            text-decoration: none;
-            background: #6c757d;
+        .button-secondary:hover {
+            background: #37474f;
         }
 
-        .back-button:hover {
-            background: #545b62;
-        }
-
-        button:focus-visible,
-        .back-button:focus-visible {
-            outline: 3px solid #ffca28;
-            outline-offset: 3px;
-        }
-
-        @media (max-width: 700px) {
-
-            .container {
-                width: calc(100% - 20px);
-                margin: 20px auto;
-                padding: 22px 16px;
-                border-radius: 10px;
+        @media (max-width: 650px) {
+            body {
+                padding: 15px 10px;
             }
 
-            .form-grid {
-                grid-template-columns: 1fr;
-                gap: 0;
-            }
-
-            .form-group.full {
-                grid-column: auto;
-            }
-
-            textarea {
-                min-height: 170px;
+            .card {
+                padding: 22px 18px;
             }
 
             .buttons {
                 flex-direction: column;
             }
 
-            button,
-            .back-button {
+            .button,
+            button {
                 width: 100%;
             }
         }
-
     </style>
-
 </head>
 
 <body>
 
-<header class="site-header">
+<div class="container">
 
-    <h1>?? Katalog Monet Œwiata</h1>
+    <main class="card">
 
-    <p>
-        Dodawanie nowej monety do katalogu
-    </p>
+        <h1>Dodaj monetÄ™</h1>
 
-</header>
+        <p class="subtitle">
+            UzupeÅ‚nij dane monety i opcjonalnie dodaj zdjÄ™cie.
+        </p>
 
-<main class="container">
+        <?php if ($sukces !== ''): ?>
 
-    <h2 class="form-title">
-        ? Dodaj monetê
-    </h2>
+            <div class="message success">
+                <?= h($sukces) ?>
+            </div>
 
-    <?php if ($blad !== ""): ?>
+        <?php endif; ?>
 
-        <div
-            class="error"
-            role="alert"
-        >
-            <?= h($blad) ?>
-        </div>
+        <?php if ($blad !== ''): ?>
 
-    <?php endif; ?>
+            <div class="message error">
+                <?= h($blad) ?>
+            </div>
 
-    <?php if ($liczbaPanstw === 0): ?>
+        <?php endif; ?>
 
-        <div
-            class="warning"
-            role="alert"
+        <form
+            method="post"
+            enctype="multipart/form-data"
         >
 
-            Przed dodaniem monety musisz najpierw
-            dodaæ przynajmniej jedno pañstwo.
-
-            <br><br>
-
-            <a href="add_panstwo.php">
-                PrzejdŸ do dodawania pañstwa
-            </a>
-
-        </div>
-
-    <?php endif; ?>
-
-    <form
-        method="post"
-        action="add_coin.php"
-        enctype="multipart/form-data"
-        autocomplete="off"
-    >
-
-        <input
-            type="hidden"
-            name="csrf_token"
-            value="<?= h(
-                $_SESSION["csrf_token"]
-            ) ?>"
-        >
-
-        <div class="form-grid">
-
-            <!-- PAÑSTWO -->
-
-            <div class="form-group full">
+            <div class="form-group">
 
                 <label for="id_panstwo">
-                    Pañstwo
+                    ID paÅ„stwa
+                    <span class="required">*</span>
                 </label>
 
-                <select
+                <input
+                    type="number"
                     id="id_panstwo"
                     name="id_panstwo"
+                    min="1"
+                    value="<?= h($idPanstwo) ?>"
                     required
                 >
 
-                    <option value="">
-                        Wybierz pañstwo
-                    </option>
-
-                    <?php while (
-                        $panstwo = mysqli_fetch_assoc(
-                            $panstwaResult
-                        )
-                    ): ?>
-
-                        <option
-                            value="<?= (int)
-                                $panstwo["id"]
-                            ?>"
-                            <?= (
-                                (int) (
-                                    $_POST["id_panstwo"] ?? 0
-                                )
-                                ===
-                                (int) $panstwo["id"]
-                            )
-                                ? "selected"
-                                : ""
-                            ?>
-                        >
-                            <?= h(
-                                $panstwo["nazwa_panstwa"]
-                            ) ?>
-                        </option>
-
-                    <?php endwhile; ?>
-
-                </select>
-
-                <small class="help-text">
-                    Wybierz pañstwo, z którego pochodzi moneta.
-                </small>
-
             </div>
-
-            <!-- WALUTA -->
 
             <div class="form-group">
 
                 <label for="waluta">
                     Waluta
+                    <span class="required">*</span>
                 </label>
 
                 <input
@@ -829,43 +548,18 @@ $liczbaPanstw = mysqli_num_rows(
                     id="waluta"
                     name="waluta"
                     maxlength="255"
+                    value="<?= h($waluta) ?>"
+                    placeholder="np. Cedi"
                     required
-                    placeholder="Na przyk³ad: z³oty"
-                    value="<?= h(
-                        $_POST["waluta"] ?? ""
-                    ) ?>"
                 >
 
             </div>
-
-            <!-- NOMINA£ -->
-
-            <div class="form-group">
-
-                <label for="nominal">
-                    Nomina³
-                </label>
-
-                <input
-                    type="text"
-                    id="nominal"
-                    name="nominal"
-                    maxlength="255"
-                    required
-                    placeholder="Na przyk³ad: 5 z³otych"
-                    value="<?= h(
-                        $_POST["nominal"] ?? ""
-                    ) ?>"
-                >
-
-            </div>
-
-            <!-- WALUTA OBIEGOWA -->
 
             <div class="form-group">
 
                 <label for="waluta_obiegowa">
                     Waluta obiegowa
+                    <span class="required">*</span>
                 </label>
 
                 <input
@@ -873,21 +567,18 @@ $liczbaPanstw = mysqli_num_rows(
                     id="waluta_obiegowa"
                     name="waluta_obiegowa"
                     maxlength="255"
+                    value="<?= h($walutaObiegowa) ?>"
+                    placeholder="np. Tak"
                     required
-                    placeholder="Na przyk³ad: tak"
-                    value="<?= h(
-                        $_POST["waluta_obiegowa"] ?? ""
-                    ) ?>"
                 >
 
             </div>
-
-            <!-- WALUTA KOLEKCJONERSKA -->
 
             <div class="form-group">
 
                 <label for="waluta_kolekcjonerska">
                     Waluta kolekcjonerska
+                    <span class="required">*</span>
                 </label>
 
                 <input
@@ -895,138 +586,174 @@ $liczbaPanstw = mysqli_num_rows(
                     id="waluta_kolekcjonerska"
                     name="waluta_kolekcjonerska"
                     maxlength="255"
+                    value="<?= h($walutaKolekcjonerska) ?>"
+                    placeholder="np. Nie"
                     required
-                    placeholder="Na przyk³ad: nie"
-                    value="<?= h(
-                        $_POST[
-                            "waluta_kolekcjonerska"
-                        ] ?? ""
-                    ) ?>"
                 >
 
             </div>
 
-            <!-- ROK BICIA -->
+            <div class="form-group">
 
-            <div class="form-group full">
+                <label for="nominal">
+                    NominaÅ‚
+                    <span class="required">*</span>
+                </label>
+
+                <input
+                    type="text"
+                    id="nominal"
+                    name="nominal"
+                    maxlength="255"
+                    value="<?= h($nominal) ?>"
+                    placeholder="np. 1 Cedi"
+                    required
+                >
+
+            </div>
+
+            <div class="form-group">
 
                 <label for="rok_bicia">
                     Rok bicia
+                    <span class="required">*</span>
                 </label>
 
                 <input
                     type="number"
                     id="rok_bicia"
                     name="rok_bicia"
-                    step="1"
+                    min="1"
+                    max="2100"
+                    value="<?= h($rokBicia) ?>"
+                    placeholder="np. 2007"
                     required
-                    placeholder="Na przyk³ad: 2025"
-                    value="<?= h(
-                        $_POST["rok_bicia"] ?? ""
-                    ) ?>"
                 >
 
             </div>
 
-            <!-- ZDJÊCIE -->
-
-            <div class="form-group full">
-
-                <label for="zdjecie">
-                    Zdjêcie monety
-                </label>
-
-                <input
-                    type="file"
-                    id="zdjecie"
-                    name="zdjecie"
-                    accept="image/jpeg,image/png,image/webp"
-                >
-
-                <small class="help-text">
-                    Dozwolone formaty: JPG, PNG i WEBP.
-                    Maksymalny rozmiar zdjêcia: 5 MB.
-                </small>
-
-            </div>
-
-            <!-- HISTORIA WALUTY -->
-
-            <div class="form-group full">
+            <div class="form-group">
 
                 <label for="historia_waluty">
                     Historia waluty
+                    <span class="required">*</span>
                 </label>
 
                 <textarea
                     id="historia_waluty"
                     name="historia_waluty"
                     required
-                    placeholder="Opisz pochodzenie oraz historiê waluty..."
-                ><?= h(
-                    $_POST["historia_waluty"] ?? ""
-                ) ?></textarea>
+                ><?= h($historiaWaluty) ?></textarea>
 
             </div>
 
-            <!-- HISTORIA JEDNOSTKI MONETARNEJ -->
+            <div class="form-group">
 
-            <div class="form-group full">
-
-                <label
-                    for="historia_jednostki_monetarnej"
-                >
+                <label for="historia_jednostki_monetarnej">
                     Historia jednostki monetarnej
+                    <span class="required">*</span>
                 </label>
 
                 <textarea
                     id="historia_jednostki_monetarnej"
                     name="historia_jednostki_monetarnej"
                     required
-                    placeholder="Opisz historiê jednostki monetarnej..."
-                ><?= h(
-                    $_POST[
-                        "historia_jednostki_monetarnej"
-                    ] ?? ""
-                ) ?></textarea>
+                ><?= h($historiaJednostkiMonetarnej) ?></textarea>
 
             </div>
 
-        </div>
+            <div class="form-group">
 
-        <div class="buttons">
+                <label for="zdjecie">
+                    ZdjÄ™cie monety
+                </label>
 
-            <button
-                type="submit"
-                <?= $liczbaPanstw === 0
-                    ? "disabled"
-                    : ""
-                ?>
-            >
-                ?? Dodaj monetê
-            </button>
+                <input
+                    type="file"
+                    id="zdjecie"
+                    name="zdjecie"
+                    accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp"
+                >
 
-            <a
-                class="back-button"
-                href="<?= h(
-                    $panelPowrotny
-                ) ?>#monety"
-            >
-                ‹ Powrót do panelu
-            </a>
+                <span class="help">
+                    Formaty: JPG, JPEG, PNG albo WEBP.
+                    Maksymalnie 5 MB.
+                </span>
 
-        </div>
+                <div
+                    id="preview"
+                    class="preview"
+                >
+                    <p>PodglÄ…d zdjÄ™cia:</p>
 
-    </form>
+                    <img
+                        id="previewImage"
+                        src=""
+                        alt="PodglÄ…d zdjÄ™cia"
+                    >
+                </div>
 
-</main>
+            </div>
+
+            <div class="buttons">
+
+                <button type="submit">
+                    Dodaj monetÄ™
+                </button>
+
+                <a
+                    href="admin_panel.php"
+                    class="button button-secondary"
+                >
+                    PowrÃ³t do panelu
+                </a>
+
+            </div>
+
+        </form>
+
+    </main>
+
+</div>
+
+<script>
+    const fileInput = document.getElementById('zdjecie');
+    const preview = document.getElementById('preview');
+    const previewImage = document.getElementById('previewImage');
+
+    fileInput.addEventListener('change', function () {
+        const file = this.files[0];
+
+        if (!file) {
+            preview.classList.remove('visible');
+            previewImage.src = '';
+            return;
+        }
+
+        if (!file.type.startsWith('image/')) {
+            alert('Wybrany plik nie jest zdjÄ™ciem.');
+            this.value = '';
+            preview.classList.remove('visible');
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+            alert('ZdjÄ™cie moÅ¼e mieÄ‡ maksymalnie 5 MB.');
+            this.value = '';
+            preview.classList.remove('visible');
+            return;
+        }
+
+        const reader = new FileReader();
+
+        reader.onload = function (event) {
+            previewImage.src = event.target.result;
+            preview.classList.add('visible');
+        };
+
+        reader.readAsDataURL(file);
+    });
+</script>
 
 </body>
 </html>
-
-<?php
-
-mysqli_free_result($panstwaResult);
-mysqli_close($conn);
-
-?>

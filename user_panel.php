@@ -1,86 +1,168 @@
 <?php
+declare(strict_types=1);
 
 session_start();
 
-/* =========================================
-   SPRAWDZENIE LOGOWANIA
-========================================= */
-
-if (!isset($_SESSION["user"])) {
-    header("Location: index.php");
-    exit;
-}
-
-/*
-Administrator korzysta z panelu administratora.
-*/
-
-if (
-    isset($_SESSION["role"]) &&
-    $_SESSION["role"] === "admin"
-) {
-    header("Location: admin_panel.php");
+if (!isset($_SESSION['user'])) {
+    header('Location: index.php');
     exit;
 }
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-require_once "db_connect.php";
+try {
+    $conn = new mysqli(
+        'localhost',
+        'root',
+        'mysql',
+        'katalogmonety'
+    );
 
-mysqli_set_charset($conn, "utf8mb4");
+    $conn->set_charset('utf8mb4');
+} catch (mysqli_sql_exception $e) {
+    die('Nie udało się połączyć z bazą danych.');
+}
 
-/* =========================================
-   FUNKCJA BEZPIECZNEGO WYŚWIETLANIA
-========================================= */
-
-function h($value): string
+function h(mixed $tekst): string
 {
     return htmlspecialchars(
-        (string) $value,
+        (string)($tekst ?? ''),
         ENT_QUOTES,
-        "UTF-8"
+        'UTF-8'
     );
 }
 
-$username = $_SESSION["user"] ?? "Użytkownik";
+function urlZdjecia(?string $sciezka): ?string
+{
+    if ($sciezka === null || trim($sciezka) === '') {
+        return null;
+    }
 
-/* =========================================
-   POBRANIE MONET
+    $sciezka = rawurldecode($sciezka);
+    $sciezka = str_replace('\\', '/', $sciezka);
+    $sciezka = trim($sciezka);
 
-   Zdjęcie jest zapisane w kolumnie:
-   zdjecie
-========================================= */
+    $sciezka = preg_replace(
+        '~^/?katalogmonety/~i',
+        '',
+        $sciezka
+    );
 
-$monetyResult = mysqli_query(
-    $conn,
-    "SELECT
-        coin.id,
-        coin.id_panstwo,
-        coin.waluta,
-        coin.nominal,
-        coin.rok_bicia,
-        coin.zdjecie,
-        panstwo.nazwa_panstwa
-     FROM coin
-     LEFT JOIN panstwo
-        ON panstwo.id = coin.id_panstwo
-     ORDER BY coin.id DESC"
-);
+    $sciezka = ltrim($sciezka, '/');
 
-$monety = [];
+    $fragmenty = explode('/', $sciezka);
+    $bezpieczneFragmenty = [];
 
-while ($row = mysqli_fetch_assoc($monetyResult)) {
-    $monety[] = $row;
+    foreach ($fragmenty as $fragment) {
+        if ($fragment === '' || $fragment === '.') {
+            continue;
+        }
+
+        if ($fragment === '..') {
+            return null;
+        }
+
+        $bezpieczneFragmenty[] = rawurlencode($fragment);
+    }
+
+    if (empty($bezpieczneFragmenty)) {
+        return null;
+    }
+
+    return '/katalogmonety/' .
+        implode('/', $bezpieczneFragmenty);
 }
 
-mysqli_free_result($monetyResult);
+$szukaj = trim($_GET['szukaj'] ?? '');
 
+try {
+    if ($szukaj !== '') {
+        $fraza = '%' . $szukaj . '%';
+
+        $stmt = $conn->prepare(
+            "SELECT
+                `id`,
+                `id_panstwo`,
+                `waluta`,
+                `waluta obiegowa`
+                    AS `waluta_obiegowa`,
+                `waluta kolekcjonerska`
+                    AS `waluta_kolekcjonerska`,
+                `nominal`,
+                `rok_bicia`,
+                `historia_waluty`,
+                `historia_jednostki _monetarnej`
+                    AS `historia_jednostki_monetarnej`,
+                `zdjecie`
+            FROM `coin`
+            WHERE
+                `waluta` LIKE ?
+                OR `waluta obiegowa` LIKE ?
+                OR `waluta kolekcjonerska` LIKE ?
+                OR `nominal` LIKE ?
+                OR CAST(`rok_bicia` AS CHAR) LIKE ?
+                OR CAST(`id_panstwo` AS CHAR) LIKE ?
+                OR `historia_waluty` LIKE ?
+                OR `historia_jednostki _monetarnej` LIKE ?
+            ORDER BY `id` DESC"
+        );
+
+        $stmt->bind_param(
+            'ssssssss',
+            $fraza,
+            $fraza,
+            $fraza,
+            $fraza,
+            $fraza,
+            $fraza,
+            $fraza,
+            $fraza
+        );
+
+        $stmt->execute();
+
+        $result = $stmt->get_result();
+        $monety = $result->fetch_all(MYSQLI_ASSOC);
+
+        $stmt->close();
+
+    } else {
+        $result = $conn->query(
+            "SELECT
+                `id`,
+                `id_panstwo`,
+                `waluta`,
+                `waluta obiegowa`
+                    AS `waluta_obiegowa`,
+                `waluta kolekcjonerska`
+                    AS `waluta_kolekcjonerska`,
+                `nominal`,
+                `rok_bicia`,
+                `historia_waluty`,
+                `historia_jednostki _monetarnej`
+                    AS `historia_jednostki_monetarnej`,
+                `zdjecie`
+            FROM `coin`
+            ORDER BY `id` DESC"
+        );
+
+        $monety = $result->fetch_all(MYSQLI_ASSOC);
+    }
+
+} catch (mysqli_sql_exception $e) {
+    die(
+        'Błąd SQL: ' .
+        h($e->getMessage())
+    );
+}
+
+$liczbaMonet = count($monety);
 ?>
+
 <!DOCTYPE html>
 <html lang="pl">
 
 <head>
-
     <meta charset="UTF-8">
 
     <meta
@@ -88,874 +170,557 @@ mysqli_free_result($monetyResult);
         content="width=device-width, initial-scale=1.0"
     >
 
-    <title>
-        Panel użytkownika – Katalog Monet Świata
-    </title>
-
-    <meta
-        name="robots"
-        content="noindex, nofollow"
-    >
+    <title>Katalog monet</title>
 
     <style>
-
-        *,
-        *::before,
-        *::after {
+        * {
             box-sizing: border-box;
         }
 
-        html {
-            scroll-behavior: smooth;
-        }
-
         body {
-            min-height: 100vh;
             margin: 0;
             font-family: Arial, Helvetica, sans-serif;
-            color: #222222;
-            background: #eef2f6;
-            line-height: 1.6;
+            color: #263238;
+            background: #eef2f7;
         }
 
-        /* =========================================
-           NAGŁÓWEK
-        ========================================= */
-
-        .site-header {
-            padding: 25px 20px;
+        header {
             color: #ffffff;
-            text-align: center;
-            background: linear-gradient(
-                135deg,
-                #101b2d,
-                #244f79
-            );
-            box-shadow:
-                0 3px 12px
-                rgba(0, 0, 0, 0.2);
+            background: linear-gradient(135deg, #0b2148, #1f3b73);
         }
 
-        .site-header h1 {
-            margin: 0;
-            font-size: clamp(
-                1.8rem,
-                5vw,
-                2.8rem
-            );
-        }
-
-        .site-header p {
-            margin: 8px 0 0;
-            color: #d9e6f2;
-        }
-
-        .role-badge {
-            display: inline-block;
-            margin-top: 12px;
-            padding: 6px 13px;
-            color: #ffffff;
-            font-size: 0.9rem;
-            font-weight: 700;
-            background:
-                rgba(255, 255, 255, 0.15);
-            border:
-                1px solid
-                rgba(255, 255, 255, 0.25);
-            border-radius: 20px;
-        }
-
-        /* =========================================
-           MENU
-        ========================================= */
-
-        .top-navigation {
-            position: sticky;
-            top: 0;
-            z-index: 20;
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 10px;
-            padding: 12px 20px;
-            background: #17243d;
-            box-shadow:
-                0 3px 10px
-                rgba(0, 0, 0, 0.18);
-        }
-
-        .top-navigation a {
-            display: inline-flex;
-            justify-content: center;
-            align-items: center;
-            gap: 8px;
-            min-height: 44px;
-            padding: 10px 16px;
-            color: #ffffff;
-            font-weight: 700;
-            text-decoration: none;
-            background: #1e88e5;
-            border-radius: 7px;
-            transition:
-                background-color 0.2s ease,
-                transform 0.2s ease;
-        }
-
-        .top-navigation a:hover {
-            background: #1565c0;
-            transform: translateY(-2px);
-        }
-
-        .top-navigation .add {
-            background: #2e7d32;
-        }
-
-        .top-navigation .add:hover {
-            background: #1b5e20;
-        }
-
-        .top-navigation .logout {
-            background: #c62828;
-        }
-
-        .top-navigation .logout:hover {
-            background: #9f1f1f;
-        }
-
-        .top-navigation a:focus-visible {
-            outline: 3px solid #ffd54f;
-            outline-offset: 3px;
-        }
-
-        /* =========================================
-           GŁÓWNA TREŚĆ
-        ========================================= */
-
-        main {
-            width: min(
-                1200px,
-                calc(100% - 30px)
-            );
-            margin: 35px auto 50px;
-        }
-
-        /* =========================================
-           KOMUNIKATY
-        ========================================= */
-
-        .message {
-            margin-bottom: 25px;
-            padding: 15px 18px;
-            color: #155724;
-            background: #d4edda;
-            border: 1px solid #b7dfc1;
-            border-radius: 8px;
-        }
-
-        /* =========================================
-           POWITANIE
-        ========================================= */
-
-        .welcome {
-            margin-bottom: 25px;
-            padding: 24px;
-            background: #ffffff;
-            border-radius: 13px;
-            box-shadow:
-                0 4px 16px
-                rgba(0, 0, 0, 0.1);
-        }
-
-        .welcome h2 {
-            margin: 0 0 8px;
-            color: #1d3557;
-            font-size: clamp(
-                1.4rem,
-                4vw,
-                2rem
-            );
-        }
-
-        .welcome p {
-            margin: 0;
-            color: #555555;
-        }
-
-        /* =========================================
-           KARTY PANELU
-        ========================================= */
-
-        .panel-grid {
-            display: grid;
-            grid-template-columns:
-                repeat(
-                    auto-fit,
-                    minmax(
-                        min(100%, 250px),
-                        1fr
-                    )
-                );
-            gap: 22px;
-        }
-
-        .panel-card {
-            display: flex;
-            flex-direction: column;
-            padding: 24px;
-            background: #ffffff;
-            border-radius: 13px;
-            box-shadow:
-                0 4px 16px
-                rgba(0, 0, 0, 0.1);
-        }
-
-        .panel-card h2 {
-            margin: 0 0 10px;
-            color: #1d3557;
-            font-size: 1.4rem;
-        }
-
-        .panel-card p {
-            flex-grow: 1;
-            margin: 0 0 20px;
-            color: #5c6670;
-        }
-
-        .panel-link {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            gap: 8px;
+        .header-inner {
             width: 100%;
-            min-height: 48px;
-            padding: 12px 16px;
-            color: #ffffff;
-            font-weight: 700;
-            text-align: center;
-            text-decoration: none;
-            background: #1e88e5;
-            border-radius: 7px;
-            transition:
-                background-color 0.2s ease,
-                transform 0.2s ease,
-                box-shadow 0.2s ease;
-        }
-
-        .panel-link:hover {
-            background: #1565c0;
-            transform: translateY(-2px);
-            box-shadow:
-                0 5px 12px
-                rgba(0, 0, 0, 0.18);
-        }
-
-        .panel-link.green {
-            background: #2e7d32;
-        }
-
-        .panel-link.green:hover {
-            background: #1b5e20;
-        }
-
-        .panel-link.logout {
-            background: #c62828;
-        }
-
-        .panel-link.logout:hover {
-            background: #9f1f1f;
-        }
-
-        .panel-link:focus-visible {
-            outline: 3px solid #ffca28;
-            outline-offset: 3px;
-        }
-
-        /* =========================================
-           LISTA MONET
-        ========================================= */
-
-        .coins-section {
-            margin-top: 30px;
-            padding: 25px;
-            background: #ffffff;
-            border-radius: 13px;
-            box-shadow:
-                0 4px 16px
-                rgba(0, 0, 0, 0.1);
-            scroll-margin-top: 90px;
-        }
-
-        .coins-header {
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 24px 20px;
             display: flex;
-            flex-wrap: wrap;
             align-items: center;
             justify-content: space-between;
-            gap: 15px;
-            margin-bottom: 22px;
+            gap: 20px;
+            flex-wrap: wrap;
         }
 
-        .coins-header h2 {
+        .brand h1 {
             margin: 0;
-            color: #1d3557;
-            font-size: clamp(
-                1.5rem,
-                4vw,
-                2rem
-            );
+            font-size: 29px;
         }
 
-        .coin-count {
-            display: inline-block;
-            padding: 7px 12px;
-            color: #244f79;
+        .brand p {
+            margin: 6px 0 0;
+            color: #d9e3f3;
+        }
+
+        .header-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .button {
+            display: inline-flex;
+            min-height: 42px;
+            padding: 10px 17px;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            border-radius: 7px;
+            color: #ffffff;
+            background: #1e88e5;
+            font-size: 15px;
             font-weight: 700;
-            background: #eaf2f9;
-            border-radius: 20px;
+            text-decoration: none;
+            cursor: pointer;
+        }
+
+        .button:hover {
+            background: #1565c0;
+        }
+
+        .button-secondary {
+            background: #546e7a;
+        }
+
+        .button-secondary:hover {
+            background: #37474f;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1300px;
+            margin: 0 auto;
+            padding: 30px 20px;
+        }
+
+        .search-box {
+            margin-bottom: 25px;
+            padding: 20px;
+            background: #ffffff;
+            border-radius: 12px;
+            box-shadow: 0 5px 18px rgba(0, 0, 0, 0.08);
+        }
+
+        .search-form {
+            display: flex;
+            gap: 10px;
+        }
+
+        .search-form input {
+            width: 100%;
+            min-height: 44px;
+            padding: 11px 14px;
+            border: 1px solid #c7d0da;
+            border-radius: 7px;
+            font-family: inherit;
+            font-size: 16px;
+        }
+
+        .search-form input:focus {
+            outline: none;
+            border-color: #1e88e5;
+            box-shadow: 0 0 0 3px rgba(30, 136, 229, 0.14);
+        }
+
+        .results-info {
+            margin: 15px 0 0;
+            color: #607d8b;
         }
 
         .coins-grid {
             display: grid;
-            grid-template-columns:
-                repeat(
-                    auto-fill,
-                    minmax(
-                        min(100%, 240px),
-                        1fr
-                    )
-                );
+            grid-template-columns: repeat(
+                auto-fill,
+                minmax(320px, 1fr)
+            );
             gap: 22px;
         }
 
         .coin-card {
-            display: flex;
-            flex-direction: column;
             overflow: hidden;
-            background: #f8fafc;
-            border: 1px solid #dce3e9;
-            border-radius: 11px;
+            background: #ffffff;
+            border-radius: 13px;
+            box-shadow: 0 6px 20px rgba(0, 0, 0, 0.09);
             transition:
-                transform 0.2s ease,
-                box-shadow 0.2s ease;
+                transform 0.2s,
+                box-shadow 0.2s;
         }
 
         .coin-card:hover {
             transform: translateY(-3px);
-            box-shadow:
-                0 7px 18px
-                rgba(0, 0, 0, 0.13);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.13);
         }
 
-        .coin-image-wrapper {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 220px;
-            padding: 12px;
-            background: #e9eef3;
-            border-bottom: 1px solid #dce3e9;
+        .coin-photo {
+            position: relative;
+            width: 100%;
+            height: 280px;
+            overflow: hidden;
+            background: #f1f4f7;
         }
 
-        .coin-image {
+        .coin-photo img {
             display: block;
             width: 100%;
             height: 100%;
             object-fit: contain;
-            border-radius: 7px;
+            background: #ffffff;
+        }
+
+        .no-image,
+        .image-error {
+            width: 100%;
+            height: 100%;
+            padding: 20px;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
         }
 
         .no-image {
             display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            height: 100%;
-            padding: 15px;
-            color: #68717a;
-            text-align: center;
-            font-style: italic;
-            background: #f3f5f7;
-            border: 1px dashed #aeb8c1;
-            border-radius: 7px;
+            color: #78909c;
+        }
+
+        .image-error {
+            display: none;
+            position: absolute;
+            inset: 0;
+            color: #b71c1c;
+            background: #ffebee;
         }
 
         .coin-content {
-            display: flex;
-            flex-direction: column;
-            flex-grow: 1;
-            padding: 18px;
-        }
-
-        .coin-content h3 {
-            margin: 0 0 12px;
-            color: #1d3557;
-            font-size: 1.25rem;
-        }
-
-        .coin-data {
-            margin: 0 0 7px;
-            color: #555f68;
-        }
-
-        .coin-data strong {
-            color: #244f79;
-        }
-
-        .coin-details {
-            display: block;
-            margin-top: auto;
-            padding: 10px 14px;
-            color: #ffffff;
-            font-weight: 700;
-            text-align: center;
-            text-decoration: none;
-            background: #1e88e5;
-            border-radius: 7px;
-        }
-
-        .coin-details:hover {
-            background: #1565c0;
-        }
-
-        .empty-message {
-            padding: 25px;
-            color: #666666;
-            text-align: center;
-            background: #f7f7f7;
-            border: 1px dashed #c5cbd1;
-            border-radius: 8px;
-        }
-
-        /* =========================================
-           INFORMACJA O UPRAWNIENIACH
-        ========================================= */
-
-        .permissions {
-            margin-top: 25px;
             padding: 20px;
-            color: #664d03;
-            background: #fff3cd;
-            border: 1px solid #ffecb5;
-            border-radius: 10px;
         }
 
-        .permissions h2 {
+        .coin-title {
+            margin: 0 0 15px;
+            color: #1f3b73;
+            font-size: 23px;
+        }
+
+        .coin-row {
+            display: grid;
+            grid-template-columns: 145px 1fr;
+            gap: 10px;
+            padding: 9px 0;
+            border-bottom: 1px solid #edf0f2;
+        }
+
+        .coin-label {
+            color: #607d8b;
+            font-weight: 700;
+        }
+
+        .coin-value {
+            overflow-wrap: anywhere;
+        }
+
+        .history {
+            margin-top: 18px;
+            padding-top: 15px;
+            border-top: 1px solid #e5e9ed;
+        }
+
+        .history h3 {
             margin: 0 0 8px;
-            font-size: 1.2rem;
+            color: #1f3b73;
+            font-size: 17px;
         }
 
-        .permissions p {
-            margin: 0;
+        .history p {
+            margin: 0 0 16px;
+            color: #455a64;
+            line-height: 1.6;
         }
 
-        /* =========================================
-           STOPKA
-        ========================================= */
-
-        .site-footer {
-            padding: 18px 20px;
-            color: #d7e0e8;
+        .empty {
+            padding: 50px 20px;
+            color: #607d8b;
+            background: #ffffff;
+            border-radius: 12px;
             text-align: center;
-            background: #17243d;
+            box-shadow: 0 5px 18px rgba(0, 0, 0, 0.08);
         }
 
-        /* =========================================
-           RESPONSYWNOŚĆ
-        ========================================= */
+        footer {
+            margin-top: 40px;
+            padding: 20px;
+            color: #d9e3f3;
+            background: #0b2148;
+            text-align: center;
+        }
 
-        @media (max-width: 650px) {
-
-            main {
-                width: calc(100% - 20px);
-                margin: 20px auto 35px;
+        @media (max-width: 700px) {
+            .header-inner {
+                align-items: stretch;
+                flex-direction: column;
             }
 
-            .welcome,
-            .panel-card,
-            .coins-section {
-                padding: 19px 16px;
+            .header-buttons {
+                flex-direction: column;
             }
 
-            .top-navigation {
-                padding: 10px;
+            .button {
+                width: 100%;
             }
 
-            .top-navigation a {
-                flex: 1 1 150px;
+            .container {
+                padding: 20px 12px;
             }
 
-            .panel-grid,
+            .search-form {
+                flex-direction: column;
+            }
+
             .coins-grid {
                 grid-template-columns: 1fr;
             }
 
-            .coin-image-wrapper {
-                height: 270px;
+            .coin-row {
+                grid-template-columns: 1fr;
+                gap: 4px;
             }
         }
-
-        @media (max-width: 420px) {
-
-            .top-navigation a {
-                flex-basis: 100%;
-                width: 100%;
-            }
-
-            .site-header {
-                padding: 22px 14px;
-            }
-
-            .coins-header {
-                align-items: stretch;
-            }
-
-            .coin-count {
-                text-align: center;
-            }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-
-            html {
-                scroll-behavior: auto;
-            }
-
-            *,
-            *::before,
-            *::after {
-                transition-duration:
-                    0.01ms !important;
-            }
-        }
-
     </style>
-
 </head>
 
 <body>
 
-<header class="site-header">
+<header>
 
-    <h1>👤 Panel użytkownika</h1>
+    <div class="header-inner">
 
-    <p>
-        Zalogowany użytkownik:
-        <strong><?= h($username) ?></strong>
-    </p>
+        <div class="brand">
 
-    <span class="role-badge">
-        Konto użytkownika
-    </span>
+            <h1>Katalog monet</h1>
 
-</header>
+            <p>
+                Przeglądaj monety zapisane w kolekcji
+            </p>
 
-<nav
-    class="top-navigation"
-    aria-label="Menu użytkownika"
->
-
-    <a href="kontynenty.php">
-        🌍 Katalog
-    </a>
-
-    <a href="#monety">
-        🪙 Monety
-    </a>
-
-    <a
-        class="add"
-        href="add_panstwo.php"
-    >
-        ➕ Dodaj państwo
-    </a>
-
-    <a
-        class="add"
-        href="add_coin.php"
-    >
-        ➕ Dodaj monetę
-    </a>
-
-    <a
-        class="logout"
-        href="logout.php"
-    >
-        🚪 Wyloguj
-    </a>
-
-</nav>
-
-<main>
-
-    <?php if (isset($_GET["dodano_panstwo"])): ?>
-
-        <div
-            class="message"
-            role="status"
-        >
-            Państwo zostało prawidłowo dodane.
         </div>
 
-    <?php endif; ?>
-
-    <?php if (isset($_GET["dodano_monete"])): ?>
-
-        <div
-            class="message"
-            role="status"
-        >
-            Moneta została prawidłowo dodana.
-        </div>
-
-    <?php endif; ?>
-
-    <section class="welcome">
-
-        <h2>
-            Witaj, <?= h($username) ?>!
-        </h2>
-
-        <p>
-            Możesz przeglądać katalog oraz dodawać nowe
-            państwa i monety. Nie możesz edytować ani
-            usuwać istniejących danych.
-        </p>
-
-    </section>
-
-    <div class="panel-grid">
-
-        <article class="panel-card">
-
-            <h2>🌍 Katalog monet</h2>
-
-            <p>
-                Przeglądaj kontynenty, państwa oraz wszystkie
-                monety znajdujące się w katalogu.
-            </p>
+        <div class="header-buttons">
 
             <a
-                class="panel-link"
-                href="kontynenty.php"
+                href="user_panel.php"
+                class="button"
             >
-                Otwórz katalog
+                Wszystkie monety
             </a>
 
-        </article>
-
-        <article class="panel-card">
-
-            <h2>🏳️ Dodaj państwo</h2>
-
-            <p>
-                Dodaj nowe państwo, przypisz je do kontynentu
-                i uzupełnij opis jego historii.
-            </p>
-
             <a
-                class="panel-link green"
-                href="add_panstwo.php"
-            >
-                Dodaj państwo
-            </a>
-
-        </article>
-
-        <article class="panel-card">
-
-            <h2>🪙 Dodaj monetę</h2>
-
-            <p>
-                Dodaj monetę wraz ze zdjęciem, walutą,
-                nominałem, rokiem bicia i opisem.
-            </p>
-
-            <a
-                class="panel-link green"
-                href="add_coin.php"
-            >
-                Dodaj monetę
-            </a>
-
-        </article>
-
-        <article class="panel-card">
-
-            <h2>🚪 Zakończ sesję</h2>
-
-            <p>
-                Bezpiecznie wyloguj się ze swojego konta
-                po zakończeniu pracy.
-            </p>
-
-            <a
-                class="panel-link logout"
                 href="logout.php"
+                class="button button-secondary"
             >
                 Wyloguj
             </a>
 
-        </article>
+        </div>
 
     </div>
 
-    <!-- =====================================
-         MONETY ZE ZDJĘCIAMI
-    ====================================== -->
+</header>
 
-    <section
-        class="coins-section"
-        id="monety"
-    >
+<main class="container">
 
-        <div class="coins-header">
+    <section class="search-box">
 
-            <h2>🪙 Monety w katalogu</h2>
+        <form
+            method="get"
+            action="user_panel.php"
+            class="search-form"
+        >
 
-            <span class="coin-count">
-                Liczba monet: <?= count($monety) ?>
-            </span>
+            <input
+                type="search"
+                name="szukaj"
+                value="<?= h($szukaj) ?>"
+                placeholder="Szukaj po walucie, nominale, roku lub historii..."
+            >
 
-        </div>
+            <button
+                type="submit"
+                class="button"
+            >
+                Szukaj
+            </button>
 
-        <?php if (count($monety) > 0): ?>
+            <?php if ($szukaj !== ''): ?>
 
-            <div class="coins-grid">
+                <a
+                    href="user_panel.php"
+                    class="button button-secondary"
+                >
+                    Wyczyść
+                </a>
 
-                <?php foreach ($monety as $moneta): ?>
+            <?php endif; ?>
 
-                    <?php
+        </form>
 
-                    $zdjecie = trim(
-                        (string) (
-                            $moneta["zdjecie"] ?? ""
-                        )
-                    );
+        <p class="results-info">
 
-                    ?>
+            <?php if ($szukaj !== ''): ?>
 
-                    <article class="coin-card">
+                Znaleziono:
+                <strong><?= $liczbaMonet ?></strong>
 
-                        <div class="coin-image-wrapper">
+                dla zapytania:
 
-                            <?php if ($zdjecie !== ""): ?>
+                <strong>„<?= h($szukaj) ?>”</strong>
 
-                                <img
-                                    class="coin-image"
-                                    src="<?= h($zdjecie) ?>"
-                                    alt="Zdjęcie monety <?= h(
-                                        $moneta["nominal"]
-                                        ?? $moneta["id"]
-                                    ) ?>"
-                                    loading="lazy"
-                                >
+            <?php else: ?>
 
-                            <?php else: ?>
+                Liczba monet:
+                <strong><?= $liczbaMonet ?></strong>
 
-                                <div class="no-image">
-                                    Brak zdjęcia monety
-                                </div>
+            <?php endif; ?>
 
-                            <?php endif; ?>
-
-                        </div>
-
-                        <div class="coin-content">
-
-                            <h3>
-                                <?= h(
-                                    $moneta["waluta"]
-                                    ?? "Moneta"
-                                ) ?>
-                            </h3>
-
-                            <p class="coin-data">
-
-                                <strong>Państwo:</strong>
-
-                                <?= h(
-                                    $moneta["nazwa_panstwa"]
-                                    ?? "Brak danych"
-                                ) ?>
-
-                            </p>
-
-                            <p class="coin-data">
-
-                                <strong>Nominał:</strong>
-
-                                <?= h(
-                                    $moneta["nominal"]
-                                    ?? "Brak danych"
-                                ) ?>
-
-                            </p>
-
-                            <p class="coin-data">
-
-                                <strong>Rok bicia:</strong>
-
-                                <?= h(
-                                    $moneta["rok_bicia"]
-                                    ?? "Brak danych"
-                                ) ?>
-
-                            </p>
-
-                            <a
-                                class="coin-details"
-                                href="coin.php?id=<?= (int)
-                                    $moneta["id"]
-                                ?>"
-                            >
-                                Zobacz szczegóły
-                            </a>
-
-                        </div>
-
-                    </article>
-
-                <?php endforeach; ?>
-
-            </div>
-
-        <?php else: ?>
-
-            <div class="empty-message">
-                Nie dodano jeszcze żadnych monet.
-            </div>
-
-        <?php endif; ?>
-
-    </section>
-
-    <section class="permissions">
-
-        <h2>🔒 Uprawnienia użytkownika</h2>
-
-        <p>
-            Konto użytkownika może przeglądać katalog oraz
-            dodawać państwa i monety wraz ze zdjęciami.
-            Modyfikowanie i usuwanie istniejących danych
-            jest dostępne wyłącznie dla administratora.
         </p>
 
     </section>
 
+    <?php if (empty($monety)): ?>
+
+        <section class="empty">
+
+            <h2>Nie znaleziono monet</h2>
+
+            <p>
+                W katalogu nie ma monet spełniających podane kryteria.
+            </p>
+
+        </section>
+
+    <?php else: ?>
+
+        <section class="coins-grid">
+
+            <?php foreach ($monety as $moneta): ?>
+
+                <?php
+                $zdjecie = urlZdjecia(
+                    $moneta['zdjecie'] ?? null
+                );
+                ?>
+
+                <article class="coin-card">
+
+                    <div class="coin-photo">
+
+                        <?php if ($zdjecie !== null): ?>
+
+                            <img
+                                src="<?= h($zdjecie) ?>"
+                                alt="Zdjęcie monety <?= h($moneta['nominal']) ?>"
+                                loading="lazy"
+                                onerror="
+                                    this.style.display='none';
+                                    this.nextElementSibling.style.display='flex';
+                                "
+                            >
+
+                            <div class="image-error">
+                                Nie udało się wyświetlić zdjęcia
+                            </div>
+
+                        <?php else: ?>
+
+                            <div class="no-image">
+                                Brak zdjęcia monety
+                            </div>
+
+                        <?php endif; ?>
+
+                    </div>
+
+                    <div class="coin-content">
+
+                        <h2 class="coin-title">
+                            <?= h($moneta['nominal']) ?>
+                            –
+                            <?= h($moneta['waluta']) ?>
+                        </h2>
+
+                        <div class="coin-row">
+
+                            <div class="coin-label">
+                                ID państwa:
+                            </div>
+
+                            <div class="coin-value">
+                                <?= (int)$moneta['id_panstwo'] ?>
+                            </div>
+
+                        </div>
+
+                        <div class="coin-row">
+
+                            <div class="coin-label">
+                                Waluta:
+                            </div>
+
+                            <div class="coin-value">
+                                <?= h($moneta['waluta']) ?>
+                            </div>
+
+                        </div>
+
+                        <div class="coin-row">
+
+                            <div class="coin-label">
+                                Waluta obiegowa:
+                            </div>
+
+                            <div class="coin-value">
+                                <?= h($moneta['waluta_obiegowa']) ?>
+                            </div>
+
+                        </div>
+
+                        <div class="coin-row">
+
+                            <div class="coin-label">
+                                Kolekcjonerska:
+                            </div>
+
+                            <div class="coin-value">
+                                <?= h(
+                                    $moneta[
+                                        'waluta_kolekcjonerska'
+                                    ]
+                                ) ?>
+                            </div>
+
+                        </div>
+
+                        <div class="coin-row">
+
+                            <div class="coin-label">
+                                Nominał:
+                            </div>
+
+                            <div class="coin-value">
+                                <?= h($moneta['nominal']) ?>
+                            </div>
+
+                        </div>
+
+                        <div class="coin-row">
+
+                            <div class="coin-label">
+                                Rok bicia:
+                            </div>
+
+                            <div class="coin-value">
+                                <?= (int)$moneta['rok_bicia'] ?>
+                            </div>
+
+                        </div>
+
+                        <div class="history">
+
+                            <h3>Historia waluty</h3>
+
+                            <p>
+                                <?= nl2br(
+                                    h($moneta['historia_waluty'])
+                                ) ?>
+                            </p>
+
+                            <h3>
+                                Historia jednostki monetarnej
+                            </h3>
+
+                            <p>
+                                <?= nl2br(
+                                    h(
+                                        $moneta[
+                                            'historia_jednostki_monetarnej'
+                                        ]
+                                    )
+                                ) ?>
+                            </p>
+
+                        </div>
+
+                    </div>
+
+                </article>
+
+            <?php endforeach; ?>
+
+        </section>
+
+    <?php endif; ?>
+
 </main>
 
-<footer class="site-footer">
-
-    &copy; <?= date("Y") ?>
-    Katalog Monet Świata
-
+<footer>
+    Katalog monet
 </footer>
 
 </body>
-
 </html>
-
-<?php
-
-mysqli_close($conn);
-
-?>
