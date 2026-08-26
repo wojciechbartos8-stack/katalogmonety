@@ -3,31 +3,18 @@ declare(strict_types=1);
 
 require_once "db_connect.php";
 
-/*
- * Ustawienie kodowania odpowiedzi i połączenia z bazą.
- */
 header("Content-Type: text/html; charset=UTF-8");
 
 if (!mysqli_set_charset($conn, "utf8mb4")) {
-    error_log(
-        "Nie udało się ustawić kodowania utf8mb4: " .
-        mysqli_error($conn)
-    );
+    error_log("Nie udało się ustawić kodowania utf8mb4: " . mysqli_error($conn));
 }
 
-/*
- * Pobranie identyfikatora państwa.
- */
 $id = isset($_GET["id"]) ? (int) $_GET["id"] : 0;
 
 if ($id <= 0) {
     http_response_code(400);
     die("Nieprawidłowy identyfikator państwa.");
 }
-
-/* =========================================
-   POBRANIE PAŃSTWA
-========================================= */
 
 $stmtPanstwo = mysqli_prepare(
     $conn,
@@ -38,11 +25,6 @@ $stmtPanstwo = mysqli_prepare(
 );
 
 if ($stmtPanstwo === false) {
-    error_log(
-        "Błąd przygotowania zapytania o państwo: " .
-        mysqli_error($conn)
-    );
-
     http_response_code(500);
     die("Wystąpił błąd podczas pobierania danych państwa.");
 }
@@ -52,21 +34,12 @@ mysqli_stmt_execute($stmtPanstwo);
 
 $wynikPanstwo = mysqli_stmt_get_result($stmtPanstwo);
 
-if ($wynikPanstwo === false) {
-    http_response_code(500);
-    die("Wystąpił błąd podczas pobierania danych państwa.");
-}
-
-if (mysqli_num_rows($wynikPanstwo) === 0) {
+if (!$wynikPanstwo || mysqli_num_rows($wynikPanstwo) === 0) {
     http_response_code(404);
     die("Nie znaleziono państwa.");
 }
 
 $panstwo = mysqli_fetch_assoc($wynikPanstwo);
-
-/* =========================================
-   POBRANIE MONET PAŃSTWA
-========================================= */
 
 $stmtMonety = mysqli_prepare(
     $conn,
@@ -77,11 +50,6 @@ $stmtMonety = mysqli_prepare(
 );
 
 if ($stmtMonety === false) {
-    error_log(
-        "Błąd przygotowania zapytania o monety: " .
-        mysqli_error($conn)
-    );
-
     http_response_code(500);
     die("Wystąpił błąd podczas pobierania monet.");
 }
@@ -96,167 +64,78 @@ if ($monety === false) {
     die("Wystąpił błąd podczas pobierania monet.");
 }
 
-/* =========================================
-   DANE DO SEO
-========================================= */
-
-$nazwaPanstwa = trim((string) ($panstwo["nazwa_panstwa"] ?? ""));
-
-$nazwaPanstwaHtml = htmlspecialchars(
-    $nazwaPanstwa,
-    ENT_QUOTES | ENT_SUBSTITUTE,
-    "UTF-8"
-);
-
-$tytulStrony = $nazwaPanstwa . " – monety i historia państwa";
-
-$opisStrony =
-    "Poznaj historię państwa " .
-    $nazwaPanstwa .
-    " oraz zobacz katalog monet pochodzących z tego kraju.";
-
-$tytulStronyHtml = htmlspecialchars(
-    $tytulStrony,
-    ENT_QUOTES | ENT_SUBSTITUTE,
-    "UTF-8"
-);
-
-$opisStronyHtml = htmlspecialchars(
-    $opisStrony,
-    ENT_QUOTES | ENT_SUBSTITUTE,
-    "UTF-8"
-);
-
-/*
- * Przyjazne nazwy kolumn.
- * Możesz dopisać kolejne nazwy zgodnie z kolumnami tabeli coin.
- */
-$nazwyPol = [
-    "nazwa"            => "Nazwa monety",
-    "nominal"          => "Nominał",
-    "waluta"           => "Waluta",
-    "rok_bicia"        => "Rok bicia",
-    "mennica"          => "Mennica",
-    "material"         => "Materiał",
-    "masa"             => "Masa",
-    "waga"             => "Waga",
-    "srednica"         => "Średnica",
-    "grubosc"          => "Grubość",
-    "naklad"           => "Nakład",
-    "stan_zachowania"  => "Stan zachowania",
-    "opis"             => "Opis",
-    "awers"            => "Awers",
-    "rewers"           => "Rewers",
-    "rant"             => "Rant",
-    "wartosc"          => "Wartość",
-    "cena"             => "Cena",
-    "data_dodania"     => "Data dodania"
-];
-
-/*
- * Funkcja tworząca czytelną nazwę pola.
- */
-function przygotujNazwePola(
-    string $klucz,
-    array $nazwyPol
-): string {
-    if (isset($nazwyPol[$klucz])) {
-        return $nazwyPol[$klucz];
-    }
-
-    return ucfirst(
-        str_replace("_", " ", $klucz)
-    );
-}
-
-/*
- * Funkcja bezpiecznego wyświetlania tekstu.
- */
-function bezpiecznyTekst(
-    mixed $wartosc
-): string {
+function bezpiecznyTekst(mixed $wartosc): string
+{
     return htmlspecialchars(
         (string) $wartosc,
         ENT_QUOTES | ENT_SUBSTITUTE,
         "UTF-8"
     );
 }
+
+function przygotujNazwePola(string $klucz, array $nazwyPol): string
+{
+    if (isset($nazwyPol[$klucz])) {
+        return $nazwyPol[$klucz];
+    }
+
+    return ucfirst(str_replace("_", " ", $klucz));
+}
+
+$nazwaPanstwa = trim((string) ($panstwo["nazwa_panstwa"] ?? ""));
+$nazwaPanstwaHtml = bezpiecznyTekst($nazwaPanstwa);
+
+$tytulStrony = $nazwaPanstwa . " – monety i historia państwa";
+$opisStrony = "Poznaj historię państwa " . $nazwaPanstwa . " oraz zobacz katalog monet pochodzących z tego kraju.";
+
+$tytulStronyHtml = bezpiecznyTekst($tytulStrony);
+$opisStronyHtml = bezpiecznyTekst($opisStrony);
+
+$nazwyPol = [
+    "waluta" => "Waluta",
+    "waluta obiegowa" => "Waluta obiegowa",
+    "waluta kolekcjonerska" => "Waluta kolekcjonerska",
+    "nominal" => "Nominał",
+    "rok_bicia" => "Rok bicia",
+    "historia_waluty" => "Historia waluty",
+    "historia_jednostki _monetarnej" => "Historia jednostki monetarnej",
+    "mennica" => "Mennica",
+    "material" => "Materiał",
+    "masa" => "Masa",
+    "waga" => "Waga",
+    "srednica" => "Średnica",
+    "grubosc" => "Grubość",
+    "naklad" => "Nakład",
+    "stan_zachowania" => "Stan zachowania",
+    "opis" => "Opis",
+    "awers" => "Awers",
+    "rewers" => "Rewers",
+    "rant" => "Rant",
+    "wartosc" => "Wartość",
+    "cena" => "Cena",
+    "data_dodania" => "Data dodania"
+];
 ?>
 <!DOCTYPE html>
 <html lang="pl">
-
 <head>
-
     <meta charset="UTF-8">
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <title><?= $tytulStronyHtml ?> | Katalog Monet Świata</title>
 
-    <meta
-        name="description"
-        content="<?= $opisStronyHtml ?>"
-    >
-
-    <meta
-        name="keywords"
-        content="monety <?= $nazwaPanstwaHtml ?>, monety świata, katalog monet, numizmatyka, historia <?= $nazwaPanstwaHtml ?>"
-    >
-
-    <meta name="author" content="Katalog Monet Świata">
+    <meta name="description" content="<?= $opisStronyHtml ?>">
     <meta name="robots" content="index, follow">
-
     <meta name="theme-color" content="#17243d">
 
     <meta property="og:locale" content="pl_PL">
-    <meta property="og:type" content="article">
-
-    <meta
-        property="og:title"
-        content="<?= $tytulStronyHtml ?>"
-    >
-
-    <meta
-        property="og:description"
-        content="<?= $opisStronyHtml ?>"
-    >
-
-    <meta
-        property="og:site_name"
-        content="Katalog Monet Świata"
-    >
-
-    <script type="application/ld+json">
-    <?= json_encode(
-        [
-            "@context" => "https://schema.org",
-            "@type" => "CollectionPage",
-            "name" => $tytulStrony,
-            "description" => $opisStrony,
-            "inLanguage" => "pl-PL",
-            "isPartOf" => [
-                "@type" => "WebSite",
-                "name" => "Katalog Monet Świata"
-            ],
-            "about" => [
-                "@type" => "Country",
-                "name" => $nazwaPanstwa
-            ]
-        ],
-        JSON_UNESCAPED_UNICODE |
-        JSON_UNESCAPED_SLASHES |
-        JSON_HEX_TAG |
-        JSON_HEX_AMP |
-        JSON_HEX_APOS |
-        JSON_HEX_QUOT
-    ); ?>
-    </script>
+    <meta property="og:type" content="website">
+    <meta property="og:title" content="<?= $tytulStronyHtml ?>">
+    <meta property="og:description" content="<?= $opisStronyHtml ?>">
+    <meta property="og:site_name" content="Katalog Monet Świata">
 
     <style>
-
         *,
         *::before,
         *::after {
@@ -265,30 +144,30 @@ function bezpiecznyTekst(
 
         html {
             scroll-behavior: smooth;
+            -webkit-text-size-adjust: 100%;
+            text-size-adjust: 100%;
         }
 
         body {
             min-height: 100vh;
+            min-height: 100svh;
             margin: 0;
-            color: #222222;
+            overflow-x: hidden;
             font-family: Arial, Helvetica, sans-serif;
-            line-height: 1.6;
+            color: #222222;
             background: #f2f4f7;
+            line-height: 1.6;
         }
 
-        a {
-            color: inherit;
+        img {
+            max-width: 100%;
         }
 
         .site-header {
             padding: 20px;
             color: #ffffff;
             text-align: center;
-            background: linear-gradient(
-                135deg,
-                #17243d,
-                #244f79
-            );
+            background: linear-gradient(135deg, #17243d, #244f79);
             box-shadow: 0 3px 10px rgba(0, 0, 0, 0.18);
         }
 
@@ -342,14 +221,6 @@ function bezpiecznyTekst(
             overflow-wrap: anywhere;
         }
 
-        .history p {
-            margin: 0 0 15px;
-        }
-
-        .history p:last-child {
-            margin-bottom: 0;
-        }
-
         .empty-message {
             margin: 0;
             padding: 16px;
@@ -374,28 +245,18 @@ function bezpiecznyTekst(
 
         .coins-list {
             display: grid;
-            grid-template-columns: repeat(
-                auto-fit,
-                minmax(min(100%, 340px), 1fr)
-            );
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
             gap: 22px;
         }
 
         .coin {
             min-width: 0;
+            overflow: hidden;
             padding: 22px;
             background: #ffffff;
             border: 1px solid #e0e5ea;
             border-radius: 12px;
             box-shadow: 0 3px 12px rgba(0, 0, 0, 0.1);
-            transition:
-                transform 0.2s ease,
-                box-shadow 0.2s ease;
-        }
-
-        .coin:hover {
-            transform: translateY(-3px);
-            box-shadow: 0 7px 20px rgba(0, 0, 0, 0.14);
         }
 
         .coin__title {
@@ -404,6 +265,30 @@ function bezpiecznyTekst(
             font-size: 1.35rem;
             line-height: 1.3;
             overflow-wrap: anywhere;
+        }
+
+        .coin-image-wrapper {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%;
+            margin: 0 0 18px;
+            padding: 15px;
+            background: #f7f9fb;
+            border: 1px solid #e1e6eb;
+            border-radius: 10px;
+        }
+
+        .coin-image {
+            display: block;
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            max-height: 350px;
+            object-fit: contain;
+            border: 1px solid #dce3e8;
+            border-radius: 10px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
         }
 
         .field {
@@ -427,6 +312,7 @@ function bezpiecznyTekst(
         .field-value {
             color: #222222;
             white-space: normal;
+            overflow-wrap: anywhere;
         }
 
         .back {
@@ -444,19 +330,10 @@ function bezpiecznyTekst(
             text-decoration: none;
             background: #1e88e5;
             border-radius: 7px;
-            transition:
-                background-color 0.2s ease,
-                transform 0.2s ease;
         }
 
         .back:hover {
             background: #1565c0;
-            transform: translateY(-2px);
-        }
-
-        .back:focus-visible {
-            outline: 3px solid #ffca28;
-            outline-offset: 3px;
         }
 
         .site-footer {
@@ -470,14 +347,28 @@ function bezpiecznyTekst(
             margin: 0;
         }
 
-        @media (max-width: 700px) {
+        @media (max-width: 768px) {
+            .main-content {
+                width: calc(100% - 24px);
+            }
 
+            .content-box,
+            .coin {
+                padding: 20px;
+            }
+
+            .coin-image {
+                max-height: 310px;
+            }
+        }
+
+        @media (max-width: 600px) {
             .site-header {
-                padding: 17px 15px;
+                padding: 16px 12px;
             }
 
             .main-content {
-                width: min(100% - 20px, 1100px);
+                width: calc(100% - 16px);
                 padding: 20px 0 38px;
             }
 
@@ -487,12 +378,8 @@ function bezpiecznyTekst(
 
             .content-box,
             .coin {
-                padding: 18px;
+                padding: 16px;
                 border-radius: 9px;
-            }
-
-            .coins-section {
-                margin-top: 30px;
             }
 
             .coins-list {
@@ -500,8 +387,13 @@ function bezpiecznyTekst(
                 gap: 16px;
             }
 
-            .coin:hover {
-                transform: none;
+            .coin-image-wrapper {
+                padding: 10px;
+                margin-bottom: 15px;
+            }
+
+            .coin-image {
+                max-height: 280px;
             }
 
             .back {
@@ -510,32 +402,22 @@ function bezpiecznyTekst(
             }
         }
 
-        @media (max-width: 420px) {
-
+        @media (max-width: 400px) {
             .main-content {
-                width: min(100% - 14px, 1100px);
+                width: calc(100% - 10px);
             }
 
             .content-box,
             .coin {
-                padding: 15px;
+                padding: 13px;
             }
 
-            .page-title {
-                font-size: 1.85rem;
-            }
-
-            .section-title {
-                font-size: 1.35rem;
-            }
-
-            .coin__title {
-                font-size: 1.2rem;
+            .coin-image {
+                max-height: 240px;
             }
         }
 
         @media (prefers-reduced-motion: reduce) {
-
             html {
                 scroll-behavior: auto;
             }
@@ -546,23 +428,17 @@ function bezpiecznyTekst(
                 transition: none !important;
             }
         }
-
     </style>
-
 </head>
 
 <body>
 
 <header class="site-header">
-
     <div class="site-header__inner">
-
         <p class="site-header__title">
             Katalog Monet Świata
         </p>
-
     </div>
-
 </header>
 
 <main class="main-content">
@@ -571,15 +447,9 @@ function bezpiecznyTekst(
         <?= $nazwaPanstwaHtml ?>
     </h1>
 
-    <section
-        class="content-box"
-        aria-labelledby="historia-title"
-    >
+    <section class="content-box" aria-labelledby="historia-title">
 
-        <h2
-            class="section-title"
-            id="historia-title"
-        >
+        <h2 class="section-title" id="historia-title">
             Historia państwa
         </h2>
 
@@ -593,11 +463,9 @@ function bezpiecznyTekst(
 
             <?php if ($historia !== ""): ?>
 
-                <p>
-                    <?= nl2br(
-                        bezpiecznyTekst($historia)
-                    ) ?>
-                </p>
+                <?= nl2br(
+                    bezpiecznyTekst($historia)
+                ) ?>
 
             <?php else: ?>
 
@@ -611,15 +479,9 @@ function bezpiecznyTekst(
 
     </section>
 
-    <section
-        class="coins-section"
-        aria-labelledby="monety-title"
-    >
+    <section class="coins-section" aria-labelledby="monety-title">
 
-        <h2
-            class="coins-title"
-            id="monety-title"
-        >
+        <h2 class="coins-title" id="monety-title">
             Monety
         </h2>
 
@@ -630,15 +492,11 @@ function bezpiecznyTekst(
                 <?php while ($moneta = mysqli_fetch_assoc($monety)): ?>
 
                     <?php
-                    $tytulMonety = "";
-
                     if (
                         isset($moneta["nazwa"]) &&
                         trim((string) $moneta["nazwa"]) !== ""
                     ) {
-                        $tytulMonety = trim(
-                            (string) $moneta["nazwa"]
-                        );
+                        $tytulMonety = trim((string) $moneta["nazwa"]);
                     } elseif (
                         isset($moneta["nominal"]) &&
                         trim((string) $moneta["nominal"]) !== ""
@@ -667,6 +525,31 @@ function bezpiecznyTekst(
                                 $klucz === "id_panstwo" ||
                                 $klucz === "nazwa"
                             ) {
+                                continue;
+                            }
+
+                            if ($klucz === "zdjecie") {
+
+                                $sciezkaZdjecia = trim(
+                                    (string) ($wartosc ?? "")
+                                );
+
+                                if ($sciezkaZdjecia !== ""):
+                                ?>
+
+                                    <div class="coin-image-wrapper">
+                                        <img
+                                            class="coin-image"
+                                            src="<?= bezpiecznyTekst($sciezkaZdjecia) ?>"
+                                            alt="Moneta z państwa <?= $nazwaPanstwaHtml ?>"
+                                            loading="lazy"
+                                            decoding="async"
+                                        >
+                                    </div>
+
+                                <?php
+                                endif;
+
                                 continue;
                             }
 
@@ -717,11 +600,9 @@ function bezpiecznyTekst(
         <?php else: ?>
 
             <div class="content-box">
-
                 <p class="empty-message">
                     Nie dodano jeszcze monet dla tego państwa.
                 </p>
-
             </div>
 
         <?php endif; ?>
@@ -739,12 +620,10 @@ function bezpiecznyTekst(
 </main>
 
 <footer class="site-footer">
-
     <p>
         &copy; <?= date("Y") ?>
         Katalog Monet Świata. Wszystkie prawa zastrzeżone.
     </p>
-
 </footer>
 
 </body>
