@@ -1,917 +1,497 @@
 <?php
-
 declare(strict_types=1);
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 require_once "db_connect.php";
 
-/* =========================================
-   KODOWANIE UTF-8
-========================================= */
+$conn->set_charset("utf8mb4");
 
-header("Content-Type: text/html; charset=UTF-8");
+$komunikat = "";
+$blad = "";
 
-mysqli_set_charset($conn, "utf8mb4");
 
-/* =========================================
-   SPRAWDZENIE ID MONETY
-========================================= */
+/* =========================
+   POBIERANIE PAŃSTW
+========================= */
 
-$id = isset($_GET["id"])
-    ? (int) $_GET["id"]
-    : 0;
-
-if ($id <= 0) {
-    http_response_code(400);
-    die("Nieprawidłowy identyfikator monety.");
-}
-
-/* =========================================
-   POBRANIE MONETY
-========================================= */
-
-$stmt = mysqli_prepare(
-    $conn,
-    "SELECT
+$sqlPanstwa = "
+    SELECT
         id,
-        id_panstwo,
-        waluta,
-        `waluta obiegowa`,
-        `waluta kolekcjonerska`,
-        nominal,
-        rok_bicia,
-        historia_waluty,
-        `historia_jednostki _monetarnej`,
-        zdjecie
-     FROM coin
-     WHERE id = ?
-     LIMIT 1"
-);
+        nazwa_panstwa
+    FROM panstwo
+    ORDER BY nazwa_panstwa ASC
+";
 
-mysqli_stmt_bind_param(
-    $stmt,
-    "i",
-    $id
-);
+$resultPanstwa = $conn->query($sqlPanstwa);
 
-mysqli_stmt_execute($stmt);
 
-$res = mysqli_stmt_get_result($stmt);
+/* =========================
+   DODAWANIE MONETY
+========================= */
 
-$c = mysqli_fetch_assoc($res);
+if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
-if (!$c) {
+    $idPanstwo = filter_input(
+        INPUT_POST,
+        "id_panstwo",
+        FILTER_VALIDATE_INT
+    );
 
-    mysqli_stmt_close($stmt);
-    mysqli_close($conn);
+    $waluta = trim($_POST["waluta"] ?? "");
+    $nominal = trim($_POST["nominał"] ?? "");
+    $walutaObiegowa = trim($_POST["waluta_obiegowa"] ?? "");
+    $walutaKolekcjonerska = trim($_POST["waluta_kolekcjonerska"] ?? "");
+    $rokBicia = trim($_POST["rok_bicia"] ?? "");
+    $zdjecie = trim($_POST["zdjecie"] ?? "");
 
-    http_response_code(404);
 
-    die("Nie znaleziono monety.");
+    if (!$idPanstwo || $idPanstwo <= 0) {
+
+        $blad = "Wybierz państwo.";
+
+    } else {
+
+        $sql = "
+            INSERT INTO coin
+            (
+                id_panstwo,
+                waluta,
+                `nominał`,
+                `waluta obiegowa`,
+                `waluta kolekcjonerska`,
+                rok_bicia,
+                zdjecie
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ";
+
+        $stmt = $conn->prepare($sql);
+
+        $stmt->bind_param(
+            "issssss",
+            $idPanstwo,
+            $waluta,
+            $nominal,
+            $walutaObiegowa,
+            $walutaKolekcjonerska,
+            $rokBicia,
+            $zdjecie
+        );
+
+        $stmt->execute();
+
+        $noweId = $stmt->insert_id;
+
+        $stmt->close();
+
+        $komunikat =
+            "Moneta została dodana. ID monety: " . $noweId;
+    }
 }
 
-/* =========================================
-   FUNKCJA BEZPIECZNEGO WYŚWIETLANIA
-========================================= */
 
-function e(mixed $value): string
+/* =========================
+   FUNKCJA BEZPIECZNEGO HTML
+========================= */
+
+function e(?string $tekst): string
 {
     return htmlspecialchars(
-        (string) $value,
-        ENT_QUOTES | ENT_SUBSTITUTE,
+        $tekst ?? "",
+        ENT_QUOTES,
         "UTF-8"
     );
 }
 
-/* =========================================
-   POLA MONETY
-========================================= */
-
-$polaMonety = [
-
-    "waluta" =>
-        "Waluta",
-
-    "waluta obiegowa" =>
-        "Waluta obiegowa",
-
-    "waluta kolekcjonerska" =>
-        "Waluta kolekcjonerska",
-
-    "nominal" =>
-        "Nominał",
-
-    "rok_bicia" =>
-        "Rok bicia",
-
-    "historia_waluty" =>
-        "Historia waluty",
-
-    "historia_jednostki _monetarnej" =>
-        "Historia jednostki monetarnej"
-];
-
-/* =========================================
-   ŚCIEŻKA DO ZDJĘCIA
-========================================= */
-
-$zdjecie = trim(
-    (string) ($c["zdjecie"] ?? "")
-);
-
-/* =========================================
-   DANE SEO
-========================================= */
-
-$nominal = trim(
-    (string) ($c["nominal"] ?? "")
-);
-
-$waluta = trim(
-    (string) ($c["waluta"] ?? "")
-);
-
-$rokBicia = trim(
-    (string) ($c["rok_bicia"] ?? "")
-);
-
-$tytulMonety = "Moneta";
-
-if ($nominal !== "") {
-    $tytulMonety .= " " . $nominal;
-}
-
-if ($waluta !== "") {
-    $tytulMonety .= " " . $waluta;
-}
-
-if ($rokBicia !== "") {
-    $tytulMonety .= " z " . $rokBicia . " roku";
-}
-
-$metaDescription =
-    "Szczegółowe informacje o monecie";
-
-if ($nominal !== "") {
-    $metaDescription .= " o nominale " . $nominal;
-}
-
-if ($waluta !== "") {
-    $metaDescription .= " " . $waluta;
-}
-
-if ($rokBicia !== "") {
-    $metaDescription .= " z " . $rokBicia . " roku";
-}
-
-$metaDescription .=
-    ". Informacje o walucie, nominale, roku bicia i historii jednostki monetarnej.";
-
 ?>
 <!DOCTYPE html>
-
-<html lang="pl">
+<html lang="pl-PL">
 
 <head>
 
-    <meta charset="UTF-8">
-
-    <meta
-        http-equiv="Content-Type"
-        content="text/html; charset=UTF-8"
-    >
-
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0"
-    >
-
-    <title>
-        <?= e($tytulMonety) ?> – Katalog Monet Świata
-    </title>
-
-    <meta
-        name="description"
-        content="<?= e($metaDescription) ?>"
-    >
-
-    <meta
-        name="robots"
-        content="index, follow"
-    >
-
-    <meta
-        name="theme-color"
-        content="#17243d"
-    >
-
-    <meta
-        property="og:locale"
-        content="pl_PL"
-    >
-
-    <meta
-        property="og:type"
-        content="article"
-    >
-
-    <meta
-        property="og:title"
-        content="<?= e($tytulMonety) ?> – Katalog Monet Świata"
-    >
-
-    <meta
-        property="og:description"
-        content="<?= e($metaDescription) ?>"
-    >
-
-    <meta
-        property="og:site_name"
-        content="Katalog Monet Świata"
-    >
-
-    <style>
-
-        /* =========================================
-           RESET
-        ========================================= */
-
-        *,
-        *::before,
-        *::after {
-            box-sizing: border-box;
-        }
-
-        html {
-            scroll-behavior: smooth;
-
-            -webkit-text-size-adjust: 100%;
-            text-size-adjust: 100%;
-        }
-
-        body {
-            min-height: 100vh;
-            min-height: 100svh;
-
-            margin: 0;
-
-            overflow-x: hidden;
-
-            font-family:
-                Arial,
-                Helvetica,
-                sans-serif;
-
-            color: #222222;
-
-            background: #f2f4f7;
-
-            line-height: 1.6;
-        }
-
-        img {
-            max-width: 100%;
-        }
-
-        /* =========================================
-           NAGŁÓWEK
-        ========================================= */
-
-        .site-header {
-            width: 100%;
-
-            padding: 18px 20px;
-
-            color: #ffffff;
-
-            text-align: center;
-
-            background:
-                linear-gradient(
-                    135deg,
-                    #17243d,
-                    #244f79
-                );
-
-            box-shadow:
-                0 3px 12px
-                rgba(0, 0, 0, 0.2);
-        }
-
-        .site-header h2 {
-            margin: 0;
-
-            color: #ffffff;
-
-            font-size:
-                clamp(
-                    1.3rem,
-                    4vw,
-                    2rem
-                );
-
-            line-height: 1.25;
-
-            overflow-wrap: anywhere;
-        }
-
-        /* =========================================
-           GŁÓWNA TREŚĆ
-        ========================================= */
-
-        main {
-            width:
-                min(
-                    1100px,
-                    calc(100% - 30px)
-                );
-
-            margin:
-                0
-                auto
-                45px;
-
-            padding:
-                28px
-                0
-                50px;
-        }
-
-        .container {
-            width: 100%;
-
-            padding: 30px;
-
-            overflow: hidden;
-
-            background: #ffffff;
-
-            border: 1px solid #e1e5e9;
-
-            border-radius: 14px;
-
-            box-shadow:
-                0 4px 18px
-                rgba(0, 0, 0, 0.12);
-        }
-
-        h1 {
-            margin:
-                0
-                0
-                28px;
-
-            color: #1d3557;
-
-            text-align: center;
-
-            font-size:
-                clamp(
-                    1.8rem,
-                    5vw,
-                    2.7rem
-                );
-
-            line-height: 1.2;
-
-            overflow-wrap: anywhere;
-        }
-
-        /* =========================================
-           ZDJĘCIE MONETY
-        ========================================= */
-
-        .coin-image-wrapper {
-            display: flex;
-
-            justify-content: flex-start;
-
-            align-items: center;
-
-            width: 100%;
-
-            margin:
-                0
-                0
-                30px;
-        }
-
-        .coin-image {
-            display: block;
-
-            width: auto;
-
-            height: auto;
-
-            max-width: 100%;
-
-            max-height: 520px;
-
-            object-fit: contain;
-
-            border:
-                1px solid
-                #d8dee5;
-
-            border-radius: 12px;
-
-            box-shadow:
-                0 5px 18px
-                rgba(0, 0, 0, 0.18);
-        }
-
-        .no-image {
-            width: 100%;
-
-            margin-bottom: 25px;
-
-            padding: 18px;
-
-            color: #666666;
-
-            text-align: center;
-
-            font-style: italic;
-
-            background: #f7f7f7;
-
-            border:
-                1px dashed
-                #c8c8c8;
-
-            border-radius: 8px;
-        }
-
-        /* =========================================
-           POLA MONETY
-        ========================================= */
-
-        .field {
-            width: 100%;
-
-            padding: 15px 0;
-
-            border-bottom:
-                1px solid
-                #e5e7eb;
-
-            overflow-wrap: anywhere;
-        }
-
-        .field:last-child {
-            border-bottom: none;
-        }
-
-        .field-name {
-            display: block;
-
-            margin-bottom: 5px;
-
-            color: #244f79;
-
-            font-size: 1rem;
-
-            font-weight: 700;
-
-            overflow-wrap: anywhere;
-        }
-
-        .field-value {
-            width: 100%;
-
-            color: #333333;
-
-            font-size: 1rem;
-
-            overflow-wrap: anywhere;
-
-            word-break: normal;
-        }
-
-        .long-text {
-            margin-top: 8px;
-
-            padding: 18px;
-
-            background: #f8fafc;
-
-            border-left:
-                4px solid
-                #1e88e5;
-
-            border-radius: 6px;
-
-            overflow-wrap: anywhere;
-        }
-
-        .empty {
-            color: #777777;
-
-            font-style: italic;
-        }
-
-        /* =========================================
-           PRZYCISK POWROTU
-        ========================================= */
-
-        .back {
-            display: flex;
-
-            justify-content: center;
-
-            align-items: center;
-
-            width: fit-content;
-
-            min-width: 180px;
-
-            min-height: 48px;
-
-            margin:
-                25px
-                auto
-                0;
-
-            padding:
-                12px
-                22px;
-
-            color: #ffffff;
-
-            font-weight: 700;
-
-            text-align: center;
-
-            text-decoration: none;
-
-            background: #1e88e5;
-
-            border-radius: 7px;
-
-            transition:
-                background-color 0.2s ease,
-                transform 0.2s ease,
-                box-shadow 0.2s ease;
-        }
-
-        .back:hover {
-            background: #1565c0;
-
-            transform:
-                translateY(-2px);
-
-            box-shadow:
-                0 6px 15px
-                rgba(0, 0, 0, 0.18);
-        }
-
-        .back:focus-visible {
-            outline:
-                3px solid
-                #ffca28;
-
-            outline-offset: 3px;
-        }
-
-        /* =========================================
-           TABLETY
-        ========================================= */
-
-        @media (max-width: 768px) {
-
-            main {
-                width:
-                    calc(
-                        100% - 24px
-                    );
-
-                margin:
-                    0
-                    auto
-                    35px;
-
-                padding:
-                    22px
-                    0
-                    35px;
-            }
-
-            .container {
-                padding:
-                    24px
-                    20px;
-            }
-
-            .coin-image {
-                max-height: 450px;
-            }
-
-            .long-text {
-                padding: 16px;
-            }
-        }
-
-        /* =========================================
-           TELEFONY
-        ========================================= */
-
-        @media (max-width: 600px) {
-
-            .site-header {
-                padding:
-                    15px
-                    12px;
-            }
-
-            main {
-                width:
-                    calc(
-                        100% - 16px
-                    );
-
-                margin:
-                    0
-                    auto
-                    30px;
-
-                padding:
-                    16px
-                    0
-                    30px;
-            }
-
-            .container {
-                padding:
-                    20px
-                    15px;
-
-                border-radius: 10px;
-            }
-
-            h1 {
-                margin-bottom: 22px;
-            }
-
-            .coin-image-wrapper {
-                justify-content: flex-start;
-
-                margin-bottom: 22px;
-            }
-
-            .coin-image {
-                width: auto;
-
-                max-width: 100%;
-
-                max-height: 380px;
-
-                border-radius: 9px;
-            }
-
-            .field {
-                padding:
-                    13px
-                    0;
-            }
-
-            .field-name,
-            .field-value {
-                font-size: 0.97rem;
-            }
-
-            .long-text {
-                padding: 14px;
-
-                border-left-width: 3px;
-            }
-
-            .back {
-                width: 100%;
-
-                margin-top: 22px;
-            }
-        }
-
-        /* =========================================
-           MAŁE TELEFONY
-        ========================================= */
-
-        @media (max-width: 400px) {
-
-            main {
-                width:
-                    calc(
-                        100% - 10px
-                    );
-            }
-
-            .container {
-                padding:
-                    17px
-                    12px;
-            }
-
-            .site-header h2 {
-                font-size: 1.2rem;
-            }
-
-            h1 {
-                font-size: 1.65rem;
-            }
-
-            .coin-image {
-                max-height: 310px;
-            }
-
-            .long-text {
-                padding: 12px;
-            }
-        }
-
-        /* =========================================
-           BARDZO MAŁE EKRANY
-        ========================================= */
-
-        @media (max-width: 330px) {
-
-            .container {
-                padding:
-                    14px
-                    10px;
-            }
-
-            h1 {
-                font-size: 1.5rem;
-            }
-
-            .field-name,
-            .field-value {
-                font-size: 0.93rem;
-            }
-        }
-
-        /* =========================================
-           OGRANICZENIE ANIMACJI
-        ========================================= */
-
-        @media (
-            prefers-reduced-motion: reduce
-        ) {
-
-            html {
-                scroll-behavior: auto;
-            }
-
-            *,
-            *::before,
-            *::after {
-                transition: none !important;
-            }
-        }
-
-    </style>
+<meta charset="UTF-8">
+
+<meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0"
+>
+
+<title>Dodaj monetę | KatalogMonety</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    margin: 0;
+    padding: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #f2f4f7;
+    color: #222;
+}
+
+header {
+    background: linear-gradient(
+        135deg,
+        #1d3557,
+        #457b9d
+    );
+    color: white;
+    padding: 30px 20px;
+    text-align: center;
+}
+
+header h1 {
+    margin: 0;
+    font-size: 32px;
+}
+
+.container {
+    width: 90%;
+    max-width: 900px;
+    margin: 30px auto;
+}
+
+.card {
+    background: white;
+    padding: 30px;
+    border-radius: 12px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.08);
+}
+
+.card h2 {
+    margin-top: 0;
+    color: #1d3557;
+    border-bottom: 2px solid #eee;
+    padding-bottom: 12px;
+}
+
+.form-group {
+    margin-bottom: 20px;
+}
+
+label {
+    display: block;
+    font-weight: bold;
+    margin-bottom: 7px;
+    color: #444;
+}
+
+input,
+select {
+    width: 100%;
+    padding: 12px;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    background: white;
+}
+
+input:focus,
+select:focus {
+    outline: none;
+    border-color: #457b9d;
+}
+
+button {
+    width: 100%;
+    padding: 14px;
+    border: none;
+    border-radius: 6px;
+    background: #1d3557;
+    color: white;
+    font-size: 17px;
+    font-weight: bold;
+    cursor: pointer;
+}
+
+button:hover {
+    background: #457b9d;
+}
+
+.success {
+    background: #d8f3dc;
+    color: #1b4332;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+}
+
+.error {
+    background: #ffe5e5;
+    color: #9b2226;
+    padding: 15px;
+    border-radius: 6px;
+    margin-bottom: 20px;
+}
+
+.info {
+    background: #eef5fb;
+    border-left: 4px solid #457b9d;
+    padding: 15px;
+    margin-bottom: 25px;
+    line-height: 1.6;
+}
+
+.back {
+    display: inline-block;
+    margin-top: 20px;
+    color: #1d3557;
+    text-decoration: none;
+    font-weight: bold;
+}
+
+.back:hover {
+    text-decoration: underline;
+}
+
+@media (max-width: 700px) {
+
+    header h1 {
+        font-size: 25px;
+    }
+
+    .container {
+        width: 94%;
+    }
+
+    .card {
+        padding: 20px;
+    }
+
+}
+
+</style>
 
 </head>
 
 <body>
 
-<header class="site-header">
 
-    <h2>
-        &#128176; Katalog Monet Świata
-    </h2>
+<header>
+
+    <h1>Dodaj monetę</h1>
 
 </header>
 
-<main>
 
-    <article class="container">
+<main class="container">
 
-        <h1>
-            Moneta ID:
-            <?= (int) $c["id"] ?>
-        </h1>
+<div class="card">
 
-        <!-- =====================================
-             ZDJĘCIE MONETY
-        ====================================== -->
+    <h2>Nowa moneta</h2>
 
-        <?php if ($zdjecie !== ""): ?>
 
-            <div class="coin-image-wrapper">
+    <?php if ($komunikat !== ""): ?>
 
-                <img
-                    class="coin-image"
-                    src="<?= e($zdjecie) ?>"
-                    alt="Zdjęcie monety <?= e($tytulMonety) ?>"
-                    loading="lazy"
-                    decoding="async"
-                >
+        <div class="success">
+            <?= e($komunikat) ?>
+        </div>
 
-            </div>
+    <?php endif; ?>
 
-        <?php else: ?>
 
-            <div class="no-image">
+    <?php if ($blad !== ""): ?>
 
-                Brak zdjęcia monety.
+        <div class="error">
+            <?= e($blad) ?>
+        </div>
 
-            </div>
+    <?php endif; ?>
 
-        <?php endif; ?>
 
-        <!-- =====================================
-             INFORMACJE O MONECIE
-        ====================================== -->
+    <div class="info">
 
-        <?php foreach (
-            $polaMonety as $nazwaKolumny => $etykieta
-        ): ?>
+        <strong>Państwo:</strong><br>
 
-            <?php
+        Wybierz państwo z listy.
+        Do tabeli <strong>coin</strong> zostanie zapisane
+        tylko jego ID.
 
-            $wartosc =
-                $c[$nazwaKolumny] ?? "";
+    </div>
 
-            $czyDlugiTekst =
-                in_array(
-                    $nazwaKolumny,
-                    [
-                        "historia_waluty",
-                        "historia_jednostki _monetarnej"
-                    ],
-                    true
-                );
 
-            ?>
+    <form method="post">
 
-            <div class="field">
 
-                <span class="field-name">
+        <!-- PAŃSTWO -->
 
-                    <?= e($etykieta) ?>:
+        <div class="form-group">
 
-                </span>
+            <label for="id_panstwo">
+                Państwo
+            </label>
 
-                <div
-                    class="
-                        field-value
-                        <?= $czyDlugiTekst
-                            ? "long-text"
-                            : ""
-                        ?>
-                    "
-                >
+            <select
+                name="id_panstwo"
+                id="id_panstwo"
+                required
+            >
 
-                    <?php if (
-                        $wartosc !== null &&
-                        trim(
-                            (string) $wartosc
-                        ) !== ""
-                    ): ?>
+                <option value="">
+                    -- wybierz państwo --
+                </option>
 
-                        <?= nl2br(
-                            e($wartosc)
-                        ) ?>
+                <?php while ($panstwo = $resultPanstwa->fetch_assoc()): ?>
 
-                    <?php else: ?>
+                    <option
+                        value="<?= (int)$panstwo["id"] ?>"
+                        <?= (
+                            isset($_POST["id_panstwo"]) &&
+                            (int)$_POST["id_panstwo"] ===
+                            (int)$panstwo["id"]
+                        ) ? "selected" : "" ?>
+                    >
 
-                        <span class="empty">
+                        <?= (int)$panstwo["id"] ?>
+                        |
+                        <?= e($panstwo["nazwa_panstwa"]) ?>
 
-                            Brak danych
+                    </option>
 
-                        </span>
+                <?php endwhile; ?>
 
-                    <?php endif; ?>
+            </select>
 
-                </div>
+        </div>
 
-            </div>
 
-        <?php endforeach; ?>
+        <!-- WALUTA -->
 
-    </article>
+        <div class="form-group">
+
+            <label for="waluta">
+                Waluta
+            </label>
+
+            <input
+                type="text"
+                name="waluta"
+                id="waluta"
+                value="<?= e($_POST["waluta"] ?? "") ?>"
+                placeholder="np. złoty"
+            >
+
+        </div>
+
+
+        <!-- NOMINAŁ -->
+
+        <div class="form-group">
+
+            <label for="nominał">
+                Nominał
+            </label>
+
+            <input
+                type="text"
+                name="nominał"
+                id="nominał"
+                value="<?= e($_POST["nominał"] ?? "") ?>"
+                placeholder="np. 1"
+            >
+
+        </div>
+
+
+        <!-- WALUTA OBIEGOWA -->
+
+        <div class="form-group">
+
+            <label for="waluta_obiegowa">
+                Waluta obiegowa
+            </label>
+
+            <input
+                type="text"
+                name="waluta_obiegowa"
+                id="waluta_obiegowa"
+                value="<?= e($_POST["waluta_obiegowa"] ?? "") ?>"
+                placeholder="np. PLN"
+            >
+
+        </div>
+
+
+        <!-- WALUTA KOLEKCJONERSKA -->
+
+        <div class="form-group">
+
+            <label for="waluta_kolekcjonerska">
+                Waluta kolekcjonerska
+            </label>
+
+            <input
+                type="text"
+                name="waluta_kolekcjonerska"
+                id="waluta_kolekcjonerska"
+                value="<?= e($_POST["waluta_kolekcjonerska"] ?? "") ?>"
+                placeholder="np. moneta kolekcjonerska"
+            >
+
+        </div>
+
+
+        <!-- ROK BICIA -->
+
+        <div class="form-group">
+
+            <label for="rok_bicia">
+                Rok bicia
+            </label>
+
+            <input
+                type="text"
+                name="rok_bicia"
+                id="rok_bicia"
+                value="<?= e($_POST["rok_bicia"] ?? "") ?>"
+                placeholder="np. 2017"
+            >
+
+        </div>
+
+
+        <!-- ZDJĘCIE -->
+
+        <div class="form-group">
+
+            <label for="zdjecie">
+                Zdjęcie
+            </label>
+
+            <input
+                type="text"
+                name="zdjecie"
+                id="zdjecie"
+                value="<?= e($_POST["zdjecie"] ?? "") ?>"
+                placeholder="np. images/polska_1_zloty_2017.jpg"
+            >
+
+        </div>
+
+
+        <button type="submit">
+            Dodaj monetę
+        </button>
+
+
+    </form>
+
 
     <a
+        href="index.php"
         class="back"
-        href="javascript:history.back()"
     >
-        &larr; Powrót
+        ‹ Powrót do katalogu
     </a>
+
+
+</div>
 
 </main>
 
 </body>
-
 </html>
-
-<?php
-
-mysqli_free_result($res);
-
-mysqli_stmt_close($stmt);
-
-mysqli_close($conn);
-
-?>
