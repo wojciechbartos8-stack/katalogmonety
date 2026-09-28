@@ -1,248 +1,255 @@
 <?php
-declare(strict_types=1);
 
 require_once "db_connect.php";
 
-header("Content-Type: text/html; charset=UTF-8");
+/*
+|--------------------------------------------------------------------------
+| Bezpieczne wyświetlanie tekstu
+|--------------------------------------------------------------------------
+*/
 
-if (!mysqli_set_charset($conn, "utf8mb4")) {
-    error_log(
-        "Nie udało się ustawić kodowania utf8mb4: " .
-        mysqli_error($conn)
+function bezpiecznyTekst($tekst)
+{
+    return htmlspecialchars(
+        (string)$tekst,
+        ENT_QUOTES,
+        'UTF-8'
     );
 }
 
-$id = isset($_GET["id"]) ? (int) $_GET["id"] : 0;
 
-if ($id <= 0) {
-    http_response_code(400);
-    die("Nieprawidłowy identyfikator państwa.");
+/*
+|--------------------------------------------------------------------------
+| ID państwa
+|--------------------------------------------------------------------------
+*/
+
+$idPanstwa = isset($_GET["id"])
+    ? (int)$_GET["id"]
+    : 0;
+
+if ($idPanstwa <= 0) {
+
+    die("Nieprawidłowe ID państwa.");
+
 }
 
 
-/* =========================================================
-   POBRANIE PAŃSTWA
-   ========================================================= */
+/*
+|--------------------------------------------------------------------------
+| Dane państwa
+|--------------------------------------------------------------------------
+*/
 
-$stmtPanstwo = mysqli_prepare(
-    $conn,
-    "SELECT
+$sqlPanstwo = "
+    SELECT
         id,
         id_kontynent,
         nazwa_panstwa,
         historia
-     FROM panstwo
-     WHERE id = ?
-     LIMIT 1"
+    FROM panstwo
+    WHERE id = ?
+    LIMIT 1
+";
+
+
+$stmtPanstwo = mysqli_prepare(
+    $conn,
+    $sqlPanstwo
 );
 
-if ($stmtPanstwo === false) {
-    http_response_code(500);
-    die("Wystąpił błąd podczas pobierania danych państwa.");
+
+if (!$stmtPanstwo) {
+
+    die(
+        "Błąd przygotowania zapytania państwa: "
+        . mysqli_error($conn)
+    );
+
 }
+
 
 mysqli_stmt_bind_param(
     $stmtPanstwo,
     "i",
-    $id
+    $idPanstwa
 );
 
-mysqli_stmt_execute($stmtPanstwo);
 
-$wynikPanstwo = mysqli_stmt_get_result($stmtPanstwo);
+mysqli_stmt_execute(
+    $stmtPanstwo
+);
 
-if (
-    !$wynikPanstwo ||
-    mysqli_num_rows($wynikPanstwo) === 0
-) {
-    http_response_code(404);
+
+mysqli_stmt_bind_result(
+    $stmtPanstwo,
+    $idPanstwaDb,
+    $idKontynentu,
+    $nazwaPanstwa,
+    $historia
+);
+
+
+if (!mysqli_stmt_fetch($stmtPanstwo)) {
+
+    mysqli_stmt_close(
+        $stmtPanstwo
+    );
+
     die("Nie znaleziono państwa.");
+
 }
 
-$panstwo = mysqli_fetch_assoc($wynikPanstwo);
+
+mysqli_stmt_close(
+    $stmtPanstwo
+);
 
 
-/* =========================================================
-   POBRANIE MONET
-   ========================================================= */
+/*
+|--------------------------------------------------------------------------
+| Monety
+|--------------------------------------------------------------------------
+*/
+
+$sqlMonety = "
+    SELECT
+        id,
+        id_panstwo,
+        `nazwa waluty`,
+        `jednostka monetarna`,
+        `nominał`,
+        `podział jednostki monetarnej`,
+        `zdjęcie`,
+        `rodzaj monety`,
+        rok_bicia
+    FROM coin
+    WHERE id_panstwo = ?
+    ORDER BY rok_bicia DESC, id DESC
+";
+
 
 $stmtMonety = mysqli_prepare(
     $conn,
-    "SELECT *
-     FROM coin
-     WHERE id_panstwo = ?
-     ORDER BY rok_bicia DESC, id DESC"
+    $sqlMonety
 );
 
-if ($stmtMonety === false) {
-    http_response_code(500);
-    die("Wystąpił błąd podczas pobierania monet.");
+
+if (!$stmtMonety) {
+
+    die(
+        "Błąd przygotowania zapytania monet: "
+        . mysqli_error($conn)
+    );
+
 }
+
 
 mysqli_stmt_bind_param(
     $stmtMonety,
     "i",
-    $id
+    $idPanstwa
 );
 
-mysqli_stmt_execute($stmtMonety);
 
-$monety = mysqli_stmt_get_result($stmtMonety);
+if (!mysqli_stmt_execute($stmtMonety)) {
 
-if ($monety === false) {
-    http_response_code(500);
-    die("Wystąpił błąd podczas pobierania monet.");
-}
-
-
-/* =========================================================
-   FUNKCJE
-   ========================================================= */
-
-function bezpiecznyTekst(mixed $wartosc): string
-{
-    return htmlspecialchars(
-        (string) $wartosc,
-        ENT_QUOTES | ENT_SUBSTITUTE,
-        "UTF-8"
+    die(
+        "Błąd wykonania zapytania monet: "
+        . mysqli_stmt_error($stmtMonety)
     );
+
 }
 
 
-function przygotujNazwePola(
-    string $klucz,
-    array $nazwyPol
-): string {
+/*
+|--------------------------------------------------------------------------
+| Zmienne dla pól tabeli coin
+|--------------------------------------------------------------------------
+*/
 
-    if (isset($nazwyPol[$klucz])) {
-        return $nazwyPol[$klucz];
-    }
+$idMonety = null;
 
-    return ucfirst(
-        str_replace("_", " ", $klucz)
-    );
+$idPanstwaMonety = null;
+
+$nazwaWaluty = null;
+
+$jednostkaMonetarna = null;
+
+$nominal = null;
+
+$podzialJednostki = null;
+
+$zdjecie = null;
+
+$rodzajMonety = null;
+
+$rokBicia = null;
+
+
+/*
+|--------------------------------------------------------------------------
+| Powiązanie wyników
+|--------------------------------------------------------------------------
+*/
+
+mysqli_stmt_bind_result(
+    $stmtMonety,
+    $idMonety,
+    $idPanstwaMonety,
+    $nazwaWaluty,
+    $jednostkaMonetarna,
+    $nominal,
+    $podzialJednostki,
+    $zdjecie,
+    $rodzajMonety,
+    $rokBicia
+);
+
+
+/*
+|--------------------------------------------------------------------------
+| Tablica monet
+|--------------------------------------------------------------------------
+*/
+
+$monety = [];
+
+
+while (mysqli_stmt_fetch($stmtMonety)) {
+
+    $monety[] = [
+
+        "id" => $idMonety,
+
+        "id_panstwo" => $idPanstwaMonety,
+
+        "nazwa waluty" => $nazwaWaluty,
+
+        "jednostka monetarna" => $jednostkaMonetarna,
+
+        "nominał" => $nominal,
+
+        "podział jednostki monetarnej" =>
+            $podzialJednostki,
+
+        "zdjęcie" => $zdjecie,
+
+        "rodzaj monety" => $rodzajMonety,
+
+        "rok_bicia" => $rokBicia
+
+    ];
+
 }
 
 
-/* =========================================================
-   DANE PAŃSTWA
-   ========================================================= */
-
-$idPanstwa = (int) (
-    $panstwo["id"] ?? $id
+mysqli_stmt_close(
+    $stmtMonety
 );
-
-$idKontynentu = (int) (
-    $panstwo["id_kontynent"] ?? 0
-);
-
-$nazwaPanstwa = trim(
-    (string) (
-        $panstwo["nazwa_panstwa"] ?? ""
-    )
-);
-
-$nazwaPanstwaHtml = bezpiecznyTekst(
-    $nazwaPanstwa
-);
-
-
-/* =========================================================
-   SEO
-   ========================================================= */
-
-$tytulStrony =
-    $nazwaPanstwa .
-    " – monety i historia państwa";
-
-$opisStrony =
-    "Poznaj historię państwa " .
-    $nazwaPanstwa .
-    " oraz zobacz katalog monet pochodzących z tego kraju.";
-
-$tytulStronyHtml = bezpiecznyTekst(
-    $tytulStrony
-);
-
-$opisStronyHtml = bezpiecznyTekst(
-    $opisStrony
-);
-
-
-/* =========================================================
-   NAZWY PÓL MONETY
-   ========================================================= */
-
-$nazwyPol = [
-
-    "waluta" =>
-        "Waluta",
-
-    "waluta_obiegowa" =>
-        "Waluta obiegowa",
-
-    "waluta_kolekcjonerska" =>
-        "Waluta kolekcjonerska",
-
-    "nominal" =>
-        "Nominał",
-
-    "rok_bicia" =>
-        "Rok bicia",
-
-    "historia_waluty" =>
-        "Historia waluty",
-
-    "historia_jednostki_monetarnej" =>
-        "Historia jednostki monetarnej",
-
-    "mennica" =>
-        "Mennica",
-
-    "material" =>
-        "Materiał",
-
-    "masa" =>
-        "Masa",
-
-    "waga" =>
-        "Waga",
-
-    "srednica" =>
-        "Średnica",
-
-    "grubosc" =>
-        "Grubość",
-
-    "naklad" =>
-        "Nakład",
-
-    "stan_zachowania" =>
-        "Stan zachowania",
-
-    "opis" =>
-        "Opis",
-
-    "awers" =>
-        "Awers",
-
-    "rewers" =>
-        "Rewers",
-
-    "rant" =>
-        "Rant",
-
-    "wartosc" =>
-        "Wartość",
-
-    "cena" =>
-        "Cena",
-
-    "data_dodania" =>
-        "Data dodania"
-];
 
 ?>
+
 <!DOCTYPE html>
 
 <html lang="pl">
@@ -257,451 +264,305 @@ $nazwyPol = [
 >
 
 <title>
-    <?= $tytulStronyHtml ?>
-    | Katalog Monet Świata
+
+    <?= bezpiecznyTekst($nazwaPanstwa) ?>
+
+    – katalog monet
+
 </title>
-
-<meta
-    name="description"
-    content="<?= $opisStronyHtml ?>"
->
-
-<meta
-    name="robots"
-    content="index, follow"
->
-
-<meta
-    name="theme-color"
-    content="#17243d"
->
-
-<meta
-    property="og:locale"
-    content="pl_PL"
->
-
-<meta
-    property="og:type"
-    content="website"
->
-
-<meta
-    property="og:title"
-    content="<?= $tytulStronyHtml ?>"
->
-
-<meta
-    property="og:description"
-    content="<?= $opisStronyHtml ?>"
->
-
-<meta
-    property="og:site_name"
-    content="Katalog Monet Świata"
->
 
 
 <style>
 
-*,
-*::before,
-*::after {
+/*
+|--------------------------------------------------------------------------
+| RESET
+|--------------------------------------------------------------------------
+*/
+
+* {
+
     box-sizing: border-box;
+
 }
 
 
-html {
-    scroll-behavior: smooth;
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
-}
-
+/*
+|--------------------------------------------------------------------------
+| BODY
+|--------------------------------------------------------------------------
+*/
 
 body {
-    min-height: 100vh;
-    min-height: 100svh;
 
     margin: 0;
-
-    overflow-x: hidden;
 
     font-family:
         Arial,
         Helvetica,
         sans-serif;
 
-    color: #222222;
+    background: #f1f4f7;
 
-    background: #f2f4f7;
+    color: #222;
 
-    line-height: 1.6;
 }
 
 
-img {
-    max-width: 100%;
-}
+/*
+|--------------------------------------------------------------------------
+| NAGŁÓWEK
+|--------------------------------------------------------------------------
+*/
 
+header {
 
-/* =========================================================
-   NAGŁÓWEK
-   ========================================================= */
+    background: #0b2148;
 
-.site-header {
+    color: white;
 
-    padding: 20px;
-
-    color: #ffffff;
+    padding: 25px 20px;
 
     text-align: center;
 
-    background:
-        linear-gradient(
-            135deg,
-            #17243d,
-            #244f79
-        );
-
-    box-shadow:
-        0 3px 10px
-        rgba(0, 0, 0, 0.18);
 }
 
 
-.site-header__inner {
-
-    width: min(1100px, 100%);
-
-    margin: 0 auto;
-}
-
-
-.site-header__title {
+header h1 {
 
     margin: 0;
 
-    color: #ffffff;
+    font-size: 32px;
 
-    font-size:
-        clamp(
-            1.35rem,
-            4vw,
-            2rem
-        );
-
-    line-height: 1.25;
 }
 
 
-/* =========================================================
-   GŁÓWNA CZĘŚĆ
-   ========================================================= */
+header p {
 
-.main-content {
+    margin: 8px 0 0;
 
-    width:
-        min(
-            1100px,
-            calc(100% - 30px)
-        );
+    font-size: 16px;
 
-    margin: 0 auto;
+    opacity: 0.9;
 
-    padding:
-        28px 0 50px;
 }
 
 
-.page-title {
+/*
+|--------------------------------------------------------------------------
+| GŁÓWNY KONTENER
+|--------------------------------------------------------------------------
+*/
 
-    margin:
-        8px 0 26px;
+.container {
 
-    color: #1d3557;
+    width: 95%;
 
-    font-size:
-        clamp(
-            2rem,
-            6vw,
-            3rem
-        );
+    max-width: 1000px;
 
-    line-height: 1.15;
+    margin: 30px auto;
 
-    text-align: center;
-
-    overflow-wrap: anywhere;
 }
 
 
-/* =========================================================
-   INFORMACJA O PAŃSTWIE
-   ========================================================= */
+/*
+|--------------------------------------------------------------------------
+| INFORMACJE O PAŃSTWIE
+|--------------------------------------------------------------------------
+*/
+
+.country-box {
+
+    background: white;
+
+    padding: 25px;
+
+    border-radius: 12px;
+
+    box-shadow:
+        0 3px 12px rgba(0,0,0,0.10);
+
+    margin-bottom: 30px;
+
+}
+
 
 .country-info {
 
     display: flex;
 
-    flex-wrap: wrap;
-
-    justify-content: center;
-
     gap: 15px;
 
-    margin:
-        0 auto 30px;
+    flex-wrap: wrap;
+
+    margin-bottom: 20px;
+
 }
 
 
-.country-info-box {
+.info-item {
 
-    min-width: 220px;
+    background: #f4f7fa;
 
-    padding: 15px 20px;
+    border: 1px solid #dde4ea;
 
-    background: #ffffff;
+    padding: 14px;
 
-    border:
-        1px solid #e0e5ea;
+    border-radius: 8px;
 
-    border-radius: 10px;
+    min-width: 200px;
 
-    box-shadow:
-        0 3px 12px
-        rgba(0, 0, 0, 0.08);
-
-    text-align: center;
 }
 
 
-.country-info-label {
+.info-label {
 
     display: block;
 
+    font-weight: bold;
+
+    color: #0b2148;
+
     margin-bottom: 5px;
 
-    color: #5f6368;
-
-    font-size: 0.9rem;
-
-    font-weight: 700;
-}
-
-
-.country-info-value {
-
-    color: #1d3557;
-
-    font-size: 1.15rem;
-
-    font-weight: 700;
-}
-
-
-/* =========================================================
-   BLOKI
-   ========================================================= */
-
-.content-box {
-
-    width: 100%;
-
-    margin:
-        0 auto 35px;
-
-    padding: 26px;
-
-    background: #ffffff;
-
-    border:
-        1px solid #e0e5ea;
-
-    border-radius: 12px;
-
-    box-shadow:
-        0 3px 14px
-        rgba(0, 0, 0, 0.1);
-}
-
-
-.section-title {
-
-    margin:
-        0 0 18px;
-
-    color: #244f79;
-
-    font-size:
-        clamp(
-            1.4rem,
-            4vw,
-            2rem
-        );
-
-    line-height: 1.25;
 }
 
 
 .history {
 
-    color: #303030;
+    line-height: 1.7;
 
-    font-size: 1.05rem;
+    white-space: pre-line;
 
-    overflow-wrap: anywhere;
 }
 
 
-.empty-message {
-
-    margin: 0;
-
-    padding: 16px;
-
-    color: #5f6368;
-
-    font-style: italic;
-
-    background: #f7f8fa;
-
-    border-left:
-        4px solid #9aa5b1;
-
-    border-radius: 6px;
-}
-
-
-/* =========================================================
-   MONETY
-   ========================================================= */
-
-.coins-section {
-
-    margin-top: 38px;
-}
-
+/*
+|--------------------------------------------------------------------------
+| TYTUŁ MONET
+|--------------------------------------------------------------------------
+*/
 
 .coins-title {
 
-    margin:
-        0 0 25px;
+    color: #0b2148;
 
-    color: #1d3557;
+    font-size: 28px;
 
-    font-size:
-        clamp(
-            1.7rem,
-            5vw,
-            2.4rem
-        );
+    margin-bottom: 20px;
 
-    line-height: 1.25;
-
-    text-align: center;
 }
 
 
-.coins-list {
+/*
+|--------------------------------------------------------------------------
+| KARTA MONETY
+|--------------------------------------------------------------------------
+*/
 
-    display: grid;
+.coin-card {
 
-    grid-template-columns:
-        repeat(
-            auto-fit,
-            minmax(
-                min(100%, 340px),
-                1fr
-            )
-        );
+    background: white;
 
-    gap: 22px;
-}
-
-
-.coin {
-
-    min-width: 0;
-
-    overflow: hidden;
-
-    padding: 22px;
-
-    background: #ffffff;
-
-    border:
-        1px solid #e0e5ea;
+    padding: 25px;
 
     border-radius: 12px;
 
+    margin-bottom: 30px;
+
     box-shadow:
-        0 3px 12px
-        rgba(0, 0, 0, 0.1);
+        0 3px 12px rgba(0,0,0,0.10);
+
 }
 
 
-.coin__title {
+/*
+|--------------------------------------------------------------------------
+| DANE MONETY – PIONOWO
+|--------------------------------------------------------------------------
+*/
 
-    margin:
-        0 0 18px;
+.coin-data {
 
-    color: #244f79;
+    display: flex;
 
-    font-size: 1.35rem;
+    flex-direction: column;
 
-    line-height: 1.3;
+    gap: 0;
+
+}
+
+
+.coin-field {
+
+    display: flex;
+
+    flex-direction: column;
+
+    padding: 13px 0;
+
+    border-bottom:
+        1px solid #e1e6eb;
+
+}
+
+
+.coin-field:first-child {
+
+    padding-top: 0;
+
+}
+
+
+.coin-field-label {
+
+    font-weight: bold;
+
+    color: #0b2148;
+
+    margin-bottom: 5px;
+
+}
+
+
+.coin-field-value {
+
+    color: #222;
+
+    line-height: 1.5;
 
     overflow-wrap: anywhere;
+
 }
 
 
-/* =========================================================
-   INFORMACJA PAŃSTWO PRZY MONECIE
-   ========================================================= */
+/*
+|--------------------------------------------------------------------------
+| ZDJĘCIE
+|--------------------------------------------------------------------------
+*/
 
-.coin-country {
+.coin-image-section {
 
-    margin:
-        0 0 18px;
+    margin-top: 20px;
 
-    padding: 13px 15px;
+    padding-top: 13px;
 
-    background: #eef4f9;
-
-    border-left:
-        4px solid #244f79;
-
-    border-radius: 7px;
 }
 
 
-.coin-country-label {
+.coin-image-label {
 
     display: block;
 
-    margin-bottom: 3px;
+    font-weight: bold;
 
-    color: #52606d;
+    color: #0b2148;
 
-    font-size: 0.9rem;
+    margin-bottom: 10px;
 
-    font-weight: 700;
 }
 
-
-.coin-country-value {
-
-    color: #1d3557;
-
-    font-size: 1.1rem;
-
-    font-weight: 700;
-}
-
-
-/* =========================================================
-   ZDJĘCIE MONETY
-   ========================================================= */
 
 .coin-image-wrapper {
 
@@ -713,17 +574,18 @@ img {
 
     width: 100%;
 
-    margin:
-        0 0 18px;
+    margin: 0 0 15px;
 
     padding: 15px;
 
     background: #f7f9fb;
 
-    border:
-        1px solid #e1e6eb;
+    border: 1px solid #e1e6eb;
 
     border-radius: 10px;
+
+    overflow: visible;
+
 }
 
 
@@ -737,8 +599,6 @@ img {
 
     max-width: 100%;
 
-    max-height: 350px;
-
     object-fit: contain;
 
     border:
@@ -747,274 +607,152 @@ img {
     border-radius: 10px;
 
     box-shadow:
-        0 4px 14px
-        rgba(0, 0, 0, 0.15);
+        0 4px 14px rgba(0,0,0,0.15);
+
 }
 
 
-/* =========================================================
-   POLA MONETY
-   ========================================================= */
+/*
+|--------------------------------------------------------------------------
+| OPIS MONETY POD ZDJĘCIEM
+|--------------------------------------------------------------------------
+*/
 
-.field {
+.coin-description {
 
-    padding: 11px 0;
+    padding: 13px 0;
 
     border-bottom:
-        1px solid #eeeeee;
+        1px solid #e1e6eb;
 
-    overflow-wrap: anywhere;
 }
 
 
-.field:last-child {
-
-    padding-bottom: 0;
-
-    border-bottom: none;
-}
-
-
-.field-name {
+.coin-description-label {
 
     display: block;
 
-    margin-bottom: 4px;
+    font-weight: bold;
 
-    color: #3f4852;
+    color: #0b2148;
 
-    font-weight: 700;
+    margin-bottom: 5px;
+
 }
 
 
-.field-value {
+.coin-description-value {
 
-    color: #222222;
+    color: #222;
 
-    white-space: normal;
+    line-height: 1.5;
 
     overflow-wrap: anywhere;
+
 }
 
 
-/* =========================================================
-   POWRÓT
-   ========================================================= */
+/*
+|--------------------------------------------------------------------------
+| BRAK ZDJĘCIA
+|--------------------------------------------------------------------------
+*/
 
-.back {
+.no-image {
 
-    display: flex;
+    padding: 20px;
 
-    align-items: center;
+    background: #f4f4f4;
 
-    justify-content: center;
+    border:
+        1px dashed #aaa;
 
-    width: fit-content;
+    border-radius: 8px;
 
-    min-width: 190px;
+    color: #666;
 
-    min-height: 48px;
+}
 
-    margin:
-        38px auto 0;
 
-    padding:
-        12px 22px;
+/*
+|--------------------------------------------------------------------------
+| BRAK MONET
+|--------------------------------------------------------------------------
+*/
 
-    color: #ffffff;
+.no-coins {
 
-    font-weight: 700;
+    background: white;
+
+    padding: 25px;
+
+    border-radius: 12px;
+
+    box-shadow:
+        0 3px 12px rgba(0,0,0,0.10);
+
+    color: #666;
+
+}
+
+
+/*
+|--------------------------------------------------------------------------
+| STOPKA
+|--------------------------------------------------------------------------
+*/
+
+footer {
+
+    margin-top: 40px;
+
+    padding: 20px;
+
+    background: #0b2148;
+
+    color: white;
 
     text-align: center;
 
-    text-decoration: none;
-
-    background: #1e88e5;
-
-    border-radius: 7px;
 }
 
 
-.back:hover {
-
-    background: #1565c0;
-}
-
-
-/* =========================================================
-   STOPKA
-   ========================================================= */
-
-.site-footer {
-
-    padding:
-        24px 15px;
-
-    color: #dce8f5;
-
-    text-align: center;
-
-    background: #102a43;
-}
-
-
-.site-footer p {
-
-    margin: 0;
-}
-
-
-/* =========================================================
-   TABLET
-   ========================================================= */
-
-@media (max-width: 768px) {
-
-    .main-content {
-
-        width:
-            calc(100% - 24px);
-    }
-
-
-    .content-box,
-    .coin {
-
-        padding: 20px;
-    }
-
-
-    .coin-image {
-
-        max-height: 310px;
-    }
-}
-
-
-/* =========================================================
-   TELEFON
-   ========================================================= */
+/*
+|--------------------------------------------------------------------------
+| TELEFON
+|--------------------------------------------------------------------------
+*/
 
 @media (max-width: 600px) {
 
-    .site-header {
+    header h1 {
 
-        padding:
-            16px 12px;
+        font-size: 25px;
+
     }
 
 
-    .main-content {
+    .container {
 
-        width:
-            calc(100% - 16px);
+        width: 94%;
 
-        padding:
-            20px 0 38px;
     }
 
 
-    .page-title {
+    .coin-card,
+    .country-box {
 
-        margin-bottom: 20px;
-    }
+        padding: 18px;
 
-
-    .content-box,
-    .coin {
-
-        padding: 16px;
-
-        border-radius: 9px;
-    }
-
-
-    .coins-list {
-
-        grid-template-columns: 1fr;
-
-        gap: 16px;
     }
 
 
     .coin-image-wrapper {
 
-        padding: 10px;
+        padding: 8px;
 
-        margin-bottom: 15px;
     }
 
-
-    .coin-image {
-
-        max-height: 280px;
-    }
-
-
-    .country-info {
-
-        flex-direction: column;
-    }
-
-
-    .country-info-box {
-
-        width: 100%;
-    }
-
-
-    .back {
-
-        width: 100%;
-
-        margin-top: 28px;
-    }
-}
-
-
-/* =========================================================
-   MAŁY TELEFON
-   ========================================================= */
-
-@media (max-width: 400px) {
-
-    .main-content {
-
-        width:
-            calc(100% - 10px);
-    }
-
-
-    .content-box,
-    .coin {
-
-        padding: 13px;
-    }
-
-
-    .coin-image {
-
-        max-height: 240px;
-    }
-}
-
-
-/* =========================================================
-   REDUKCJA ANIMACJI
-   ========================================================= */
-
-@media (prefers-reduced-motion: reduce) {
-
-    html {
-
-        scroll-behavior: auto;
-    }
-
-
-    * {
-
-        transition: none !important;
-    }
 }
 
 </style>
@@ -1025,433 +763,483 @@ img {
 <body>
 
 
-<header class="site-header">
+<!-- =========================================================
+     NAGŁÓWEK
+     ========================================================= -->
 
-    <div class="site-header__inner">
+<header>
 
-        <p class="site-header__title">
-            Katalog Monet Świata
-        </p>
+    <h1>
 
-    </div>
+        <?= bezpiecznyTekst($nazwaPanstwa) ?>
+
+    </h1>
+
+    <p>
+
+        Katalog monet
+
+    </p>
 
 </header>
 
 
-<main class="main-content">
+
+<div class="container">
 
 
-    <!-- =====================================================
-         NAZWA PAŃSTWA
-         ===================================================== -->
-
-    <h1 class="page-title">
-
-        <?= $nazwaPanstwaHtml ?>
-
-    </h1>
-
-
-    <!-- =====================================================
+    <!-- =========================================================
          INFORMACJE O PAŃSTWIE
-         ===================================================== -->
+         ========================================================= -->
 
-    <div class="country-info">
+    <section class="country-box">
 
 
-        <div class="country-info-box">
+        <div class="country-info">
 
-            <span class="country-info-label">
-                ID państwa
-            </span>
 
-            <span class="country-info-value">
+            <div class="info-item">
 
-                <?= $idPanstwa ?>
+                <span class="info-label">
 
-                |
+                    ID państwa
 
-                <?= $nazwaPanstwaHtml ?>
+                </span>
 
-            </span>
+                <?= bezpiecznyTekst($idPanstwaDb) ?>
+
+            </div>
+
+
+
+            <div class="info-item">
+
+                <span class="info-label">
+
+                    ID kontynentu
+
+                </span>
+
+                <?= bezpiecznyTekst($idKontynentu) ?>
+
+            </div>
+
 
         </div>
 
-
-        <div class="country-info-box">
-
-            <span class="country-info-label">
-                ID kontynentu
-            </span>
-
-            <span class="country-info-value">
-
-                <?= $idKontynentu ?>
-
-            </span>
-
-        </div>
-
-
-    </div>
-
-
-    <!-- =====================================================
-         HISTORIA PAŃSTWA
-         ===================================================== -->
-
-    <section
-        class="content-box"
-        aria-labelledby="historia-title"
-    >
-
-        <h2
-            class="section-title"
-            id="historia-title"
-        >
-
-            Historia państwa
-
-        </h2>
 
 
         <div class="history">
 
+            <strong>
+
+                Historia państwa:
+
+            </strong>
+
+            <br><br>
+
+            <?= nl2br(
+                bezpiecznyTekst($historia)
+            ) ?>
+
+        </div>
+
+
+    </section>
+
+
+
+    <!-- =========================================================
+         MONETY
+         ========================================================= -->
+
+    <h2 class="coins-title">
+
+        Monety państwa
+
+    </h2>
+
+
+
+    <?php if (count($monety) === 0): ?>
+
+
+        <div class="no-coins">
+
+            Brak monet przypisanych do tego państwa.
+
+        </div>
+
+
+    <?php else: ?>
+
+
+        <?php foreach ($monety as $moneta): ?>
+
+
             <?php
 
-            $historia = trim(
-                (string) (
-                    $panstwo["historia"] ?? ""
-                )
-            );
+            /*
+            |--------------------------------------------------------------------------
+            | ŚCIEŻKA ZDJĘCIA
+            |--------------------------------------------------------------------------
+            */
+
+            $sciezkaZdjecia =
+                trim(
+                    (string)$moneta["zdjęcie"]
+                );
+
+
+            $sciezkaZdjecia =
+                str_replace(
+                    "\\",
+                    "/",
+                    $sciezkaZdjecia
+                );
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Usunięcie początku:
+            |
+            | www/katalogmonety/
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                strpos(
+                    $sciezkaZdjecia,
+                    "www/katalogmonety/"
+                ) === 0
+            ) {
+
+                $sciezkaZdjecia =
+                    substr(
+                        $sciezkaZdjecia,
+                        strlen(
+                            "www/katalogmonety/"
+                        )
+                    );
+
+            }
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | Usunięcie początku:
+            |
+            | katalogmonety/
+            |--------------------------------------------------------------------------
+            */
+
+            if (
+                strpos(
+                    $sciezkaZdjecia,
+                    "katalogmonety/"
+                ) === 0
+            ) {
+
+                $sciezkaZdjecia =
+                    substr(
+                        $sciezkaZdjecia,
+                        strlen(
+                            "katalogmonety/"
+                        )
+                    );
+
+            }
+
+
+            $sciezkaZdjecia =
+                ltrim(
+                    $sciezkaZdjecia,
+                    "/"
+                );
+
+
+            /*
+            |--------------------------------------------------------------------------
+            | OPIS MONETY
+            |
+            | Opis zawiera wyłącznie nominał.
+            | Nie jest tutaj ponownie dodawana nazwa waluty
+            | ani jednostka monetarna.
+            |--------------------------------------------------------------------------
+            */
+
+            $opisMonety =
+                trim(
+                    (string)$moneta["nominał"]
+                );
 
             ?>
 
 
-            <?php if ($historia !== ""): ?>
+            <!-- =================================================
+                 KARTA MONETY
+                 ================================================= -->
 
-                <?= nl2br(
-                    bezpiecznyTekst($historia)
-                ) ?>
-
-            <?php else: ?>
-
-                <p class="empty-message">
-
-                    Brak opisu historii tego państwa.
-
-                </p>
-
-            <?php endif; ?>
-
-        </div>
-
-    </section>
+            <article class="coin-card">
 
 
-    <!-- =====================================================
-         MONETY
-         ===================================================== -->
-
-    <section
-        class="coins-section"
-        aria-labelledby="monety-title"
-    >
-
-        <h2
-            class="coins-title"
-            id="monety-title"
-        >
-
-            Monety
-
-        </h2>
+                <div class="coin-data">
 
 
-        <?php if (mysqli_num_rows($monety) > 0): ?>
+                    <!-- =================================================
+                         NAZWA WALUTY
+                         ================================================= -->
+
+                    <div class="coin-field">
+
+                        <span class="coin-field-label">
+
+                            Nazwa waluty
+
+                        </span>
 
 
-            <div class="coins-list">
-
-
-                <?php while (
-                    $moneta = mysqli_fetch_assoc($monety)
-                ): ?>
-
-
-                    <?php
-
-                    if (
-                        isset($moneta["nazwa"]) &&
-                        trim(
-                            (string)
-                            $moneta["nazwa"]
-                        ) !== ""
-                    ) {
-
-                        $tytulMonety =
-                            trim(
-                                (string)
-                                $moneta["nazwa"]
-                            );
-
-                    } elseif (
-                        isset($moneta["nominal"]) &&
-                        trim(
-                            (string)
-                            $moneta["nominal"]
-                        ) !== ""
-                    ) {
-
-                        $tytulMonety =
-                            "Moneta " .
-                            trim(
-                                (string)
-                                $moneta["nominal"]
-                            );
-
-                    } else {
-
-                        $tytulMonety =
-                            "Moneta numer " .
-                            (int)
-                            $moneta["id"];
-                    }
-
-                    ?>
-
-
-                    <article class="coin">
-
-
-                        <h3 class="coin__title">
+                        <span class="coin-field-value">
 
                             <?= bezpiecznyTekst(
-                                $tytulMonety
+                                $moneta["nazwa waluty"]
                             ) ?>
 
-                        </h3>
+                        </span>
+
+                    </div>
+
+
+
+                    <!-- =================================================
+                         JEDNOSTKA MONETARNA
+                         ================================================= -->
+
+                    <div class="coin-field">
+
+                        <span class="coin-field-label">
+
+                            Jednostka monetarna
+
+                        </span>
+
+
+                        <span class="coin-field-value">
+
+                            <?= bezpiecznyTekst(
+                                $moneta["jednostka monetarna"]
+                            ) ?>
+
+                        </span>
+
+                    </div>
+
+
+
+                    <!-- =================================================
+                         NOMINAŁ
+                         ================================================= -->
+
+                    <div class="coin-field">
+
+                        <span class="coin-field-label">
+
+                            Nominał
+
+                        </span>
+
+
+                        <span class="coin-field-value">
+
+                            <?= bezpiecznyTekst(
+                                $moneta["nominał"]
+                            ) ?>
+
+                        </span>
+
+                    </div>
+
+
+
+                    <!-- =================================================
+                         PODZIAŁ JEDNOSTKI MONETARNEJ
+                         ================================================= -->
+
+                    <div class="coin-field">
+
+                        <span class="coin-field-label">
+
+                            Podział jednostki monetarnej
+
+                        </span>
+
+
+                        <span class="coin-field-value">
+
+                            <?= bezpiecznyTekst(
+                                $moneta[
+                                    "podział jednostki monetarnej"
+                                ]
+                            ) ?>
+
+                        </span>
+
+                    </div>
+
+
+
+                    <!-- =================================================
+                         RODZAJ MONETY
+                         ================================================= -->
+
+                    <div class="coin-field">
+
+                        <span class="coin-field-label">
+
+                            Rodzaj monety
+
+                        </span>
+
+
+                        <span class="coin-field-value">
+
+                            <?= bezpiecznyTekst(
+                                $moneta["rodzaj monety"]
+                            ) ?>
+
+                        </span>
+
+                    </div>
+
+
+
+                    <!-- =================================================
+                         ZDJĘCIE
+                         ================================================= -->
+
+                    <div class="coin-image-section">
+
+
+                        <span class="coin-image-label">
+
+                            Zdjęcie
+
+                        </span>
+
+
+
+                        <?php if ($sciezkaZdjecia !== ""): ?>
+
+
+                            <div class="coin-image-wrapper">
+
+
+                                <img
+                                    src="<?= bezpiecznyTekst(
+                                        $sciezkaZdjecia
+                                    ) ?>"
+                                    alt="<?= bezpiecznyTekst(
+                                        $opisMonety
+                                    ) ?>"
+                                    class="coin-image"
+                                >
+
+
+                            </div>
+
+
+                        <?php else: ?>
+
+
+                            <div class="no-image">
+
+                                Brak zdjęcia monety.
+
+                            </div>
+
+
+                        <?php endif; ?>
+
 
 
                         <!-- =================================================
-                             PAŃSTWO MONETY
+                             OPIS MONETY POD ZDJĘCIEM
                              ================================================= -->
 
-                        <div class="coin-country">
+                        <div class="coin-description">
 
-                            <span class="coin-country-label">
 
-                                Państwo
+                            <span class="coin-description-label">
+
+                                Opis monety
 
                             </span>
 
 
-                            <div class="coin-country-value">
+                            <span class="coin-description-value">
 
-                                <?= (int)
-                                    $moneta["id_panstwo"]
-                                ?>
+                                <?= bezpiecznyTekst(
+                                    $opisMonety
+                                ) ?>
 
-                                |
+                            </span>
 
-                                <?= $nazwaPanstwaHtml ?>
-
-                            </div>
 
                         </div>
 
 
-                        <!-- =================================================
-                             POZOSTAŁE POLA MONETY
-                             ================================================= -->
+                    </div>
 
-                        <?php foreach (
-                            $moneta as $klucz => $wartosc
-                        ): ?>
 
 
-                            <?php
+                    <!-- =================================================
+                         ROK BICIA
+                         ================================================= -->
 
-                            /*
-                             * Tych pól nie wyświetlamy
-                             * drugi raz.
-                             */
+                    <div class="coin-field">
 
-                            if (
-                                $klucz === "id" ||
-                                $klucz === "id_panstwo" ||
-                                $klucz === "nazwa"
-                            ) {
+                        <span class="coin-field-label">
 
-                                continue;
-                            }
+                            Rok bicia
 
+                        </span>
 
-                            /* =============================================
-                               ZDJĘCIE
-                               ============================================= */
 
-                            if ($klucz === "zdjecie") {
+                        <span class="coin-field-value">
 
+                            <?= bezpiecznyTekst(
+                                $moneta["rok_bicia"]
+                            ) ?>
 
-                                $sciezkaZdjecia =
-                                    trim(
-                                        (string)
-                                        ($wartosc ?? "")
-                                    );
+                        </span>
 
+                    </div>
 
-                                if (
-                                    $sciezkaZdjecia !== ""
-                                ):
 
-                                ?>
+                </div>
 
-                                    <div
-                                        class="coin-image-wrapper"
-                                    >
 
-                                        <img
-                                            class="coin-image"
-                                            src="<?= bezpiecznyTekst(
-                                                $sciezkaZdjecia
-                                            ) ?>"
-                                            alt="Moneta z państwa <?= $nazwaPanstwaHtml ?>"
-                                            loading="lazy"
-                                            decoding="async"
-                                        >
+            </article>
 
-                                    </div>
 
-                                <?php
+        <?php endforeach; ?>
 
-                                endif;
 
-                                continue;
-                            }
+    <?php endif; ?>
 
-                            ?>
 
+</div>
 
-                            <?php
 
-                            $nazwaPola =
-                                przygotujNazwePola(
-                                    (string) $klucz,
-                                    $nazwyPol
-                                );
 
+<!-- =========================================================
+     STOPKA
+     ========================================================= -->
 
-                            $wartoscTekstowa =
-                                trim(
-                                    (string)
-                                    ($wartosc ?? "")
-                                );
+<footer>
 
-                            ?>
-
-
-                            <div class="field">
-
-
-                                <span class="field-name">
-
-                                    <?= bezpiecznyTekst(
-                                        $nazwaPola
-                                    ) ?>:
-
-                                </span>
-
-
-                                <div class="field-value">
-
-
-                                    <?php if (
-                                        $wartoscTekstowa !== ""
-                                    ): ?>
-
-                                        <?= nl2br(
-                                            bezpiecznyTekst(
-                                                $wartoscTekstowa
-                                            )
-                                        ) ?>
-
-                                    <?php else: ?>
-
-                                        Brak danych
-
-                                    <?php endif; ?>
-
-
-                                </div>
-
-
-                            </div>
-
-
-                        <?php endforeach; ?>
-
-
-                    </article>
-
-
-                <?php endwhile; ?>
-
-
-            </div>
-
-
-        <?php else: ?>
-
-
-            <div class="content-box">
-
-                <p class="empty-message">
-
-                    Nie dodano jeszcze monet
-                    dla tego państwa.
-
-                </p>
-
-            </div>
-
-
-        <?php endif; ?>
-
-
-    </section>
-
-
-    <!-- =====================================================
-         POWRÓT
-         ===================================================== -->
-
-    <a
-        class="back"
-        href="kontynenty.php"
-        aria-label="Powrót do listy kontynentów i państw"
-    >
-
-        &larr;
-        Powrót do katalogu
-
-    </a>
-
-
-</main>
-
-
-<footer class="site-footer">
-
-    <p>
-
-        &copy;
-        <?= date("Y") ?>
-
-        Katalog Monet Świata.
-        Wszystkie prawa zastrzeżone.
-
-    </p>
+    Katalog monet
 
 </footer>
 
@@ -1459,28 +1247,3 @@ img {
 </body>
 
 </html>
-
-
-<?php
-
-mysqli_free_result(
-    $wynikPanstwo
-);
-
-mysqli_free_result(
-    $monety
-);
-
-mysqli_stmt_close(
-    $stmtPanstwo
-);
-
-mysqli_stmt_close(
-    $stmtMonety
-);
-
-mysqli_close(
-    $conn
-);
-
-?>
